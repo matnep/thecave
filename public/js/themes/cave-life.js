@@ -10,15 +10,21 @@ const ease = (x) => x * x * (3 - 2 * x);
 
 export function createLife(scene, { groundY, MOUTH }) {
   // ------------------------------------------------------------ ripples on the water
-  const ripples = [];
+  // a fixed pool, reused round-robin, so ripples never allocate while running
   const rippleGeo = new THREE.RingGeometry(.8, 1, 40);
   rippleGeo.rotateX(-Math.PI / 2);
-  function ripple(x, z, size = .5, life = 1.8) {
+  const ripples = Array.from({ length: 40 }, () => {
     const m = new THREE.Mesh(rippleGeo, new THREE.MeshBasicMaterial({ color: 0xffe2b8, transparent: true, opacity: 0, depthWrite: false }));
-    m.position.set(x, .015, z);
-    m.renderOrder = 4;
+    m.renderOrder = 4; m.visible = false;
     scene.add(m);
-    ripples.push({ m, age: 0, life, size });
+    return { m, age: 0, life: 1, size: 1, on: false };
+  });
+  let nextRipple = 0;
+  function ripple(x, z, size = .5, life = 1.8) {
+    const r = ripples[nextRipple++ % ripples.length];
+    r.m.position.set(x, .015, z);
+    r.age = 0; r.life = life; r.size = size; r.on = true;
+    r.m.visible = true;
   }
 
   // ------------------------------------------------------------ splash droplets
@@ -40,49 +46,142 @@ export function createLife(scene, { groundY, MOUTH }) {
   }
 
   // ------------------------------------------------------------ ducks
+  // An articulated duck: root (heading) → tilt (pitch/roll) → body, tail pivot, neck pivot (head + beak).
   function makeDuck(kind) {
-    const g = new THREE.Group();
+    const root = new THREE.Group(), tilt = new THREE.Group(), neck = new THREE.Group(), tail = new THREE.Group();
+    root.add(tilt);
     const body = kind === 'drake' ? 0xd8cfbd : kind === 'hen' ? 0x8a6444 : 0xe6c24a;
     const head = kind === 'drake' ? 0x2f5e3c : kind === 'hen' ? 0x6e4e34 : 0xeccf5a;
-    const add = (geo, color, pos, scale, rot = [0, 0, 0]) => {
+    const mesh = (parent, geo, color, pos, scale, rot = [0, 0, 0]) => {
       const m = new THREE.Mesh(geo, flat(color));
       m.position.set(...pos); m.scale.set(...scale); m.rotation.set(...rot);
-      m.castShadow = true; g.add(m);
+      m.castShadow = true; parent.add(m); return m;
     };
-    add(new THREE.IcosahedronGeometry(1, 1), body, [0, .07, 0], [.3, .17, .2]);
-    add(new THREE.IcosahedronGeometry(1, 0), head, [.24, .25, 0], [.12, .12, .11]);
-    add(new THREE.ConeGeometry(.05, .15, 4), 0xe3902c, [.38, .23, 0], [1, 1, .7], [0, 0, -Math.PI / 2]);
-    add(new THREE.ConeGeometry(.08, .2, 4), body, [-.3, .13, 0], [1, 1, .6], [0, 0, Math.PI / 2 + .5]);
-    if (kind === 'drake') add(new THREE.TorusGeometry(.08, .015, 4, 10), 0xf2efe6, [.2, .17, 0], [1, 1, 1], [0, Math.PI / 2, 0]);
-    g.userData.size = (kind === 'chick' ? .55 : 1) * 1.8;   // stylised, big enough to read from the back of the room
-    return g;
+    mesh(tilt, new THREE.IcosahedronGeometry(1, 1), body, [0, .07, 0], [.3, .17, .2]);
+    tail.position.set(-.25, .1, 0); tilt.add(tail);
+    mesh(tail, new THREE.ConeGeometry(.08, .2, 4), body, [-.06, .03, 0], [1, 1, .6], [0, 0, Math.PI / 2 + .5]);
+    neck.position.set(.19, .13, 0); tilt.add(neck);
+    mesh(neck, new THREE.IcosahedronGeometry(1, 0), head, [.05, .11, 0], [.12, .12, .11]);
+    mesh(neck, new THREE.ConeGeometry(.05, .15, 4), 0xe3902c, [.19, .09, 0], [1, 1, .7], [0, 0, -Math.PI / 2]);
+    if (kind === 'drake') mesh(neck, new THREE.TorusGeometry(.08, .015, 4, 10), 0xf2efe6, [.01, .04, 0], [1, 1, 1], [0, Math.PI / 2, 0]);
+    root.userData = { tilt, neck, tail, size: (kind === 'chick' ? .55 : 1) * 1.8 };
+    root.scale.setScalar(root.userData.size);
+    return root;
   }
+
+  // A swimmer steers toward a target with limited acceleration and turn rate, so it eases in and out
+  // of moves and leans into turns. Paddling sets the rhythm for the bob, the surge and the head nod.
+  const tmpD = new THREE.Vector2(), tmpEnd = new THREE.Vector3();
+  class Swimmer {
+    constructor(kind, x, z, heading) {
+      this.duck = makeDuck(kind);
+      this.size = this.duck.userData.size;
+      this.pos = new THREE.Vector2(x, z);
+      this.vel = new THREE.Vector2();
+      this.heading = heading;
+      this.turn = 0;
+      this.phase = Math.random() * 6;
+      this.seed = Math.random() * 100;
+      this.look = 0; this.lookTarget = 0; this.lookTimer = 1 + Math.random() * 3;
+      this.dabble = -1;          // 0..1 while dabbling
+      this.wag = 0;
+      this.wake = Math.random();
+      scene.add(this.duck);
+    }
+    get speed() { return this.vel.length(); }
+    setSize(size) { this.size = size; this.duck.userData.size = size; this.duck.scale.setScalar(size); }
+    steer(dt, tx, tz, maxSpeed, arrive = .8) {
+      const d = tmpD.set(tx - this.pos.x, tz - this.pos.y);
+      const dist = d.length();
+      const acc = (dist > 1e-4 ? d.multiplyScalar(maxSpeed * Math.min(1, dist / arrive) / dist) : d.set(0, 0)).sub(this.vel);
+      const maxAcc = .55 * dt;
+      if (acc.length() > maxAcc) acc.setLength(maxAcc);
+      this.vel.add(acc);
+      if (this.dabble >= 0) this.vel.multiplyScalar(1 - Math.min(1, dt * 3));   // stops to feed
+      this.pos.addScaledVector(this.vel, dt);
+      return dist;
+    }
+    update(t, dt, { idle = false } = {}) {
+      const sp = this.speed;
+      // turn smoothly toward the direction of travel
+      if (sp > .03) {
+        const want = Math.atan2(-this.vel.y, this.vel.x);
+        const diff = Math.atan2(Math.sin(want - this.heading), Math.cos(want - this.heading));
+        this.turn += (Math.max(-1.4, Math.min(1.4, diff * 2.4)) - this.turn) * Math.min(1, dt * 5);
+      } else this.turn *= 1 - Math.min(1, dt * 4);
+      this.heading += this.turn * dt;
+
+      this.phase += dt * Math.PI * 2 * (.7 + sp * 5);       // paddles faster when moving
+      const { tilt, neck, tail } = this.duck.userData;
+
+      // looking around when idle, straight ahead when swimming
+      if ((this.lookTimer -= dt) < 0) { this.lookTimer = 1.5 + Math.random() * 3; this.lookTarget = idle ? (Math.random() - .5) * 1.6 : 0; }
+      this.look += (this.lookTarget - this.look) * Math.min(1, dt * 3);
+      neck.rotation.y = this.look;
+      neck.position.x = .19 + Math.sin(this.phase) * .012 * Math.min(1, sp * 6 + .2);   // head bob with each stroke
+      neck.rotation.z = Math.sin(this.phase + 1) * .06;
+
+      // occasional tail wag
+      if (this.wag <= 0 && Math.random() < dt * (idle ? .25 : .05)) this.wag = .6;
+      this.wag = Math.max(0, this.wag - dt);
+      tail.rotation.y = Math.sin(t * 22) * .5 * Math.min(1, this.wag * 3);
+
+      // dabble: tips forward, tail up, head under, comes back up
+      let dip = 0;
+      if (this.dabble >= 0) {
+        const before = this.dabble;
+        this.dabble += dt / 2.4;
+        dip = Math.pow(Math.sin(Math.min(1, this.dabble) * Math.PI), .6);
+        if (before < .3 && this.dabble >= .3) ripple(this.pos.x + Math.cos(this.heading) * .3 * this.size, this.pos.y - Math.sin(this.heading) * .3 * this.size, .3 * this.size, 1.4);
+        if (this.dabble >= 1) this.dabble = -1;
+      }
+
+      this.duck.position.set(this.pos.x, Math.sin(this.phase * .5 + this.seed) * .008 * this.size + Math.sin(t * 1.1 + this.seed) * .005, this.pos.y);
+      this.duck.rotation.y = this.heading;
+      tilt.rotation.z = -dip * 1.05 + Math.sin(this.phase) * .025 * Math.min(1, sp * 5);   // nose down to feed; surge when paddling
+      tilt.rotation.x = -this.turn * .14;                                                     // lean into turns
+
+      // wake: ripples come more often and bigger the faster it swims
+      if (sp > .04 && (this.wake -= dt * sp * 3.2) < 0) { this.wake = 1; ripple(this.pos.x, this.pos.y, (.35 + sp) * .5 * this.size, 1.7); }
+    }
+    remove() { scene.remove(this.duck); }
+  }
+
+  // a mother and ducklings paddle out from behind the left column and away behind the right pillar
   function ducks() {
     const path = new THREE.CatmullRomCurve3([
-      [-5.8, -5.6], [-3.8, -3.4], [-1.6, -2.3], [.5, -2.3], [2.0, -3.5], [3.6, -5.4],
+      [-6.6, -6.4], [-5.2, -4.8], [-3.6, -3.4], [-1.6, -2.4], [.5, -2.3], [2.0, -3.5], [3.8, -5.6], [5.2, -6.6],
     ].map(([x, z]) => new THREE.Vector3(x, 0, z)));
-    const flock = ['hen', 'chick', 'chick', 'chick', ...(Math.random() < .5 ? ['drake'] : [])].map(makeDuck);
-    flock.forEach((d) => scene.add(d));
-    const DUR = 34, GAP = 2.6;                         // seconds between each duck in the line
-    let age = 0;
-    const wakeT = flock.map(() => Math.random());
-    const lane = flock.map((_, i) => (i ? (i % 2 ? 1 : -1) * (.3 + Math.random() * .3) : 0));  // sideways offset off mum's line
+    const LEN = path.getLength(), CRUISE = .3;
+    const kinds = ['hen', 'chick', 'chick', 'chick', ...(Math.random() < .5 ? ['drake'] : [])];
+    const start = path.getPointAt(0), dir = path.getTangentAt(0);
+    const flock = kinds.map((k, i) => new Swimmer(k, start.x - dir.x * i * .9, start.z - dir.z * i * .9, Math.atan2(-dir.z, dir.x)));
+    const lanes = flock.map(() => (Math.random() - .5) * .5);
+    let u = 0, age = 0;
     return {
-      update(dt) {
+      update(dt, t) {
         age += dt;
-        flock.forEach((d, i) => {
-          const u = (age - i * GAP) / DUR;             // ducklings trail behind mum
-          if (u < 0 || u > 1) { d.visible = false; return; }
-          d.visible = true;
-          const p = path.getPointAt(u), ahead = path.getPointAt(Math.min(1, u + .01));
-          d.position.set(p.x + Math.sin(age * .7 + i) * .15, Math.sin(age * 3 + i) * .015, p.z + lane[i] + Math.sin(age * .5 + i * 2) * .25);
-          d.rotation.y = Math.atan2(-(ahead.z - p.z), ahead.x - p.x) + Math.sin(age * 2.2 + i) * .12;
-          d.rotation.z = Math.sin(age * 3 + i) * .04;
-          const fade = Math.min(1, u * 25, (1 - u) * 25);
-          d.scale.setScalar(Math.max(.001, d.userData.size * fade));
-          if ((wakeT[i] -= dt) < 0) { wakeT[i] = .9; ripple(d.position.x, d.position.z, .5 * d.userData.size, 1.6); }
-        });
-        if (age > DUR + flock.length * GAP) { flock.forEach((d) => scene.remove(d)); return false; }
+        // mum swims the path at an easy pace
+        u = Math.min(1, u + (CRUISE * dt) / LEN);
+        const aim = path.getPointAt(Math.min(1, u + .035));
+        flock[0].steer(dt, aim.x, aim.z, CRUISE * 1.15, 1);
+        flock[0].update(t, dt);
+        // each duckling follows the one ahead, a little behind and to one side, catching up when it lags
+        for (let i = 1; i < flock.length; i++) {
+          const lead = flock[i - 1], me = flock[i];
+          const back = .55 * lead.size + .25;
+          const fx = Math.cos(lead.heading), fz = -Math.sin(lead.heading);
+          const side = lanes[i] + Math.sin(t * .5 + i * 2) * .18;
+          const tx = lead.pos.x - fx * back - fz * side, tz = lead.pos.y - fz * back + fx * side;
+          const dist = Math.hypot(tx - me.pos.x, tz - me.pos.y);
+          me.steer(dt, tx, tz, CRUISE * (1 + Math.min(1.2, dist * .8)), .6);
+          me.update(t, dt);
+        }
+        const last = flock[flock.length - 1];
+        if (u >= 1 && (path.getPointAt(1).distanceTo(tmpEnd.set(last.pos.x, 0, last.pos.y)) < 1.2 || age > 90)) {
+          flock.forEach((d) => d.remove());
+          return false;
+        }
       },
     };
   }
@@ -217,45 +316,33 @@ export function createLife(scene, { groundY, MOUTH }) {
   }
 
   // ------------------------------------------------------------ the lost duckling (always around)
-  // Paddles between random spots on the open water in front, stops, bobs, sometimes dips its head.
-  const lost = makeDuck('chick');
-  lost.userData.size = 1.15;
-  lost.scale.setScalar(lost.userData.size);
-  scene.add(lost);
-  const L = { x: -1.1, z: 2.4, heading: Math.PI, target: null, rest: 2, wake: 0, dip: 0 };
+  // Wanders between spots on the open water in front: swims over, slows, rests, looks about, sometimes dabbles.
+  const lost = new Swimmer('chick', -1.1, 2.4, Math.PI);
+  lost.setSize(1.15);
+  let lostTarget = null, lostRest = 2;
   function pickSpot() {
     for (let i = 0; i < 40; i++) {
       // open water left of the mid-channel rock, so it never paddles out of sight
       const x = -2.2 + Math.random() * 2.3, z = .9 + Math.random() * 2.9;
-      if (groundY(x, z) < -.25 && Math.hypot(x - .9, z - .9) > 1.7 && Math.hypot(x - L.x, z - L.z) > 1) return { x, z };
+      if (groundY(x, z) < -.25 && Math.hypot(x - .9, z - .9) > 1.7 && Math.hypot(x - lost.pos.x, z - lost.pos.y) > 1) return { x, z };
     }
     return { x: -1.1, z: 2.4 };
   }
-  lost.position.set(L.x, 0, L.z);
   function updateLost(t, dt) {
-    if (L.target) {
-      const dx = L.target.x - L.x, dz = L.target.z - L.z, dist = Math.hypot(dx, dz);
-      const want = Math.atan2(-dz, dx);
-      let turn = want - L.heading;
-      turn = Math.atan2(Math.sin(turn), Math.cos(turn));
-      L.heading += turn * Math.min(1, dt * 2.2);
-      const speed = .38 * Math.max(.2, Math.cos(turn));          // slows down to turn
-      L.x += Math.cos(L.heading) * speed * dt;
-      L.z -= Math.sin(L.heading) * speed * dt;
-      if ((L.wake -= dt) < 0) { L.wake = .8; ripple(L.x, L.z, .45, 1.5); }
-      if (dist < .25) { L.target = null; L.rest = 1.5 + Math.random() * 4; if (Math.random() < .5) L.dip = 1; }
-    } else if ((L.rest -= dt) < 0) {
-      L.target = pickSpot();
+    let idle = true;
+    if (lostTarget) {
+      idle = false;
+      const dist = lost.steer(dt, lostTarget.x, lostTarget.z, .26, .9);
+      if (dist < .15 && lost.speed < .05) {
+        lostTarget = null;
+        lostRest = 2 + Math.random() * 4;
+        if (Math.random() < .5) lost.dabble = 0;
+      }
+    } else {
+      lost.steer(dt, lost.pos.x, lost.pos.y, 0);        // drift to a stop
+      if ((lostRest -= dt) < 0 && lost.dabble < 0) lostTarget = pickSpot();
     }
-    // a head dip: tip forward, hold, come back up
-    let tilt = 0;
-    if (L.dip > 0) {
-      L.dip = Math.max(0, L.dip - dt * .55);
-      tilt = -Math.sin((1 - L.dip) * Math.PI) * .7;
-      if (L.dip > .45 && L.dip - dt * .55 <= .45) ripple(L.x + Math.cos(L.heading) * .3, L.z - Math.sin(L.heading) * .3, .3, 1.2);
-    }
-    lost.position.set(L.x, Math.sin(t * 2.6) * .015, L.z);
-    lost.rotation.set(0, L.heading + Math.sin(t * 1.7) * .05, tilt + Math.sin(t * 2.6 + 1) * .03);
+    lost.update(t, dt, { idle });
   }
 
   // ------------------------------------------------------------ director
@@ -265,18 +352,18 @@ export function createLife(scene, { groundY, MOUTH }) {
     update(t, dt) {
       updateLost(t, dt);
       if (active) {
-        if (active.update(dt) === false) { active = null; wait = 9 + Math.random() * 11; }
+        if (active.update(dt, t) === false) { active = null; wait = 9 + Math.random() * 11; }
       } else if ((wait -= dt) <= 0) {
         const names = Object.keys(EVENTS).filter((n) => n !== last);
         last = names[Math.floor(Math.random() * names.length)];
         active = EVENTS[last]();
       }
 
-      for (let i = ripples.length - 1; i >= 0; i--) {
-        const r = ripples[i];
+      for (const r of ripples) {
+        if (!r.on) continue;
         r.age += dt;
         const u = r.age / r.life;
-        if (u >= 1) { scene.remove(r.m); r.m.material.dispose(); ripples.splice(i, 1); continue; }
+        if (u >= 1) { r.on = false; r.m.visible = false; continue; }
         r.m.scale.setScalar(r.size * (.25 + ease(u) * 1.2));
         r.m.material.opacity = (1 - u) * .35;
       }

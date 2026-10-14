@@ -53,12 +53,6 @@
   .presenter.live { outline: 2px solid var(--amber); border-radius: 8px; }
   .stack { display: flex; flex-direction: column; gap: 10px; }
 
-  .slide { border: 1px solid var(--line); border-radius: 9px; padding: 10px; margin-bottom: 8px; background: #241b15; }
-  .slide .head { display: flex; gap: 6px; align-items: center; margin-bottom: 8px; }
-  .slide .head select { flex: 1; }
-  .slide .head input { width: 64px; }
-  .slide textarea { width: 100%; resize: vertical; min-height: 64px; font-family: ui-monospace, Consolas, monospace; text-transform: uppercase; }
-  .slide input.sub { width: 100%; margin-top: 6px; }
   .hint { color: var(--dim); font-size: 12px; }
   .saved { color: var(--ok); font-size: 12px; margin-left: 8px; }
 </style>
@@ -112,16 +106,14 @@
         <h2>Presenters</h2>
         <div id="presenters"></div>
         <div class="row"><button id="addPresenter">+ Add presenter</button><button class="main" id="savePresenters">Save</button><span class="saved" id="pSaved"></span></div>
-        <div class="hint">"On stage" shows their name on the TV and the audience form; new questions are tagged with them.</div>
+        <div class="hint">"On stage" shows their name under THE CAVE logo on the backdrop and on the audience form; new questions are tagged with them.</div>
       </div>
 
       <div class="panel">
-        <h2>TV slides</h2>
-        <div id="slides"></div>
-        <div class="row"><button id="addSlide">+ Add slide</button></div>
-        <div class="row"><label style="flex:1">Footer <input id="footer" maxlength="40" style="width:100%"></label></div>
-        <div class="row"><button class="main" id="saveTv">Save &amp; send to TV</button><button id="resetTv">Reset to default</button><span class="saved" id="tvSaved"></span></div>
-        <div class="hint">Text slides: one line per row, up to 3 short lines. "QR" shows the scan code, "Presenter" shows who's on stage (skipped when nobody is).</div>
+        <h2>TV</h2>
+        <div class="row"><label style="flex:1">Caption under the QR <input id="caption" maxlength="40" style="width:100%;text-transform:uppercase"></label></div>
+        <div class="row"><button class="main" id="saveCaption">Save</button><span class="saved" id="capSaved"></span></div>
+        <div class="hint">The TV only shows the QR code with this line, and audience questions.</div>
       </div>
     </div>
   </div>
@@ -198,7 +190,7 @@
     sel.replaceChildren(el('option', { value: '', textContent: 'All presenters' }), ...names.map((n) => el('option', { value: n, textContent: n })));
     sel.value = names.includes(cur) ? cur : '';
     if (!dirtyPresenters) renderPresenters(s.presenters, s.live);
-    if (!dirtyTv) { renderSlides(s.slides); $('footer').value = s.footer; }
+    if (!dirtyTv) $('caption').value = s.caption;
   }
 
   function renderTabs() {
@@ -267,34 +259,12 @@
     await act('live', { id: p ? p.id : null });
   }
 
-  // ---------------------------------------------------------------- TV slides
-  let slides = [];
-  function renderSlides(list) { slides = list.map((s) => ({ ...s, lines: [...(s.lines || [])] })); drawSlides(); }
-  function drawSlides() {
-    $('slides').replaceChildren(...slides.map((s, i) => {
-      const kind = el('select', { onchange: (e) => { s.kind = e.target.value; if (s.kind === 'text' && !s.lines.length) s.lines = ['NEW SLIDE']; dirtyTv = true; drawSlides(); } },
-        ...[['text', 'Text'], ['qr', 'QR code'], ['presenter', 'Presenter']].map(([v, t]) => el('option', { value: v, textContent: t, selected: s.kind === v })));
-      const secs = el('input', { type: 'number', min: 3, max: 120, value: s.secs, title: 'seconds', oninput: (e) => { s.secs = Number(e.target.value); dirtyTv = true; } });
-      const move = (d) => { const j = i + d; if (j < 0 || j >= slides.length) return; [slides[i], slides[j]] = [slides[j], slides[i]]; dirtyTv = true; drawSlides(); };
-      const head = el('div', { className: 'head' }, el('b', { textContent: i + 1 + '.' }), kind, secs, el('span', { className: 'hint', textContent: 's' }),
-        el('button', { textContent: '↑', onclick: () => move(-1) }), el('button', { textContent: '↓', onclick: () => move(1) }),
-        el('button', { className: 'bad', textContent: '✕', onclick: () => { slides.splice(i, 1); dirtyTv = true; drawSlides(); } }));
-      const box = el('div', { className: 'slide' }, head);
-      if (s.kind === 'text') {
-        box.append(
-          el('textarea', { value: s.lines.join('\n'), placeholder: 'BIG IDEAS.\nREAL PEOPLE.', oninput: (e) => { s.lines = e.target.value.split('\n').map((l) => l.trim().toUpperCase()).filter(Boolean).slice(0, 3); dirtyTv = true; } }),
-          el('input', { className: 'sub', value: s.sub || '', placeholder: 'Small line underneath (optional)', oninput: (e) => { s.sub = e.target.value; dirtyTv = true; } }));
-      }
-      return box;
-    }));
-  }
-  $('addSlide').onclick = () => { slides.push({ kind: 'text', lines: ['NEW SLIDE'], sub: '', secs: 7 }); dirtyTv = true; drawSlides(); };
-  $('footer').oninput = () => (dirtyTv = true);
-  $('saveTv').onclick = async () => {
-    await act('tv', { slides, footer: $('footer').value });
-    dirtyTv = false; flash('tvSaved'); render();
+  // ---------------------------------------------------------------- TV caption
+  $('caption').oninput = () => (dirtyTv = true);
+  $('saveCaption').onclick = async () => {
+    await act('caption', { caption: $('caption').value });
+    dirtyTv = false; flash('capSaved'); render();
   };
-  $('resetTv').onclick = async () => { if (!confirm('Replace the TV slides with the defaults?')) return; await act('tv-reset'); dirtyTv = false; render(); };
 
   // ---------------------------------------------------------------- controls
   $('moderation').onchange = (e) => act('moderation', { on: e.target.checked });

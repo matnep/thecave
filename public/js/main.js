@@ -2,7 +2,8 @@
 // Owns the renderer, the TV's content (questions/QR), the live connection and the keyboard,
 // and swaps between themes. Each theme lives in ./themes/ and exports `create()`; see firelit-cave.js.
 //
-// Keys:  1–9 switch theme · F fullscreen · Q camera into the TV for the QR · → / Space next TV slide
+// Keys:  1–9 switch theme · F fullscreen · Q camera in/out of the TV · P FPS meter
+//        → next question · ← previous question · ↑ show the QR · ↓ back to automatic
 import * as THREE from 'three';
 import { TVScreen } from './tv-screen.js';
 
@@ -16,13 +17,43 @@ const logoImg = new Image();
 logoImg.src = '/logo.png';
 await logoImg.decode();
 
-const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
+// 1x pixel ratio: the theme's post-processing buffer uses MSAA for smooth edges, which is far cheaper than
+// rendering at 1.5x (2.25x the pixels). antialias on the canvas itself would be wasted behind post-processing.
+const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
+renderer.setPixelRatio(1);
 renderer.setSize(innerWidth, innerHeight);
 document.body.appendChild(renderer.domElement);
 
 // the TV's content is shared, so a queued question survives a theme switch
 const tvScreen = new TVScreen();
+let presenter = null;   // who's on stage; each theme shows it its own way
+
+// ---- new-question ping, synthesised (no audio file). Browsers only allow sound after a key press or click,
+// so the context unlocks on the first one (pressing F for fullscreen is enough).
+let audio = null;
+const unlockAudio = () => { audio = audio || new AudioContext(); if (audio.state === 'suspended') audio.resume(); };
+addEventListener('keydown', unlockAudio);
+addEventListener('pointerdown', unlockAudio);
+function ping() {
+  if (!audio || audio.state !== 'running') return;
+  const t = audio.currentTime;
+  const out = audio.createGain();
+  out.gain.value = .35;
+  out.connect(audio.destination);
+  // two bell-like partials with a soft attack and a long tail
+  for (const [freq, delay, level] of [[1318.5, 0, 1], [1975.5, .09, .6], [2637, .09, .25]]) {
+    const o = audio.createOscillator(), g = audio.createGain();
+    o.type = 'sine';
+    o.frequency.value = freq;
+    g.gain.setValueAtTime(0, t + delay);
+    g.gain.linearRampToValueAtTime(level, t + delay + .01);
+    g.gain.exponentialRampToValueAtTime(.0001, t + delay + 1.4);
+    o.connect(g).connect(out);
+    o.start(t + delay);
+    o.stop(t + delay + 1.5);
+  }
+}
+tvScreen.onQuestion = () => { ping(); theme?.onQuestion?.(); };
 const screenTex = new THREE.CanvasTexture(tvScreen.canvas);
 screenTex.colorSpace = THREE.SRGBColorSpace;
 screenTex.anisotropy = 8;
@@ -52,6 +83,7 @@ async function loadTheme(n) {
     theme = next; themeNum = n;
     if (tier >= 3) theme.degrade();
     tvScreen.onSwitch = (item) => theme.onSwitch(item);
+    theme.setPresenter?.(presenter);
     localStorage.setItem('cave-theme', String(n));
     window.__cave = { theme, themeNum, tvScreen, renderer, ...theme.debug };
   } catch (err) {
@@ -65,10 +97,24 @@ async function loadTheme(n) {
 
 // ============================================================ loop
 let last = performance.now();
+// P toggles a small FPS meter (frames per second, averaged over half a second, plus the worst frame)
+const fpsEl = Object.assign(document.createElement('div'), { id: 'fps' });
+fpsEl.style.cssText = 'position:fixed;right:10px;top:8px;z-index:7;font:14px monospace;color:#ffd38a;background:rgba(0,0,0,.55);padding:3px 8px;border-radius:5px;display:none';
+document.body.appendChild(fpsEl);
+let fpsFrames = 0, fpsSince = performance.now(), fpsWorst = 0;
+function meter(now, dtMs) {
+  fpsFrames++; fpsWorst = Math.max(fpsWorst, dtMs);
+  if (now - fpsSince < 500) return;
+  if (fpsEl.style.display !== 'none') fpsEl.textContent = `${Math.round(fpsFrames * 1000 / (now - fpsSince))} fps · worst ${fpsWorst.toFixed(0)} ms · q${tier}`;
+  fpsFrames = 0; fpsSince = now; fpsWorst = 0;
+}
+
 function frame(now) {
+  meter(now, now - last);
   const dt = Math.min(Math.max((now - last) / 1000, 0), .05);
   last = now;
   if (tvScreen.draw(now)) screenTex.needsUpdate = true;
+  document.body.classList.toggle('zoomed', tvScreen.focus);
   if (theme) {
     theme.update(dt, now);
     adaptQuality(dt, now);
@@ -83,8 +129,8 @@ function adaptQuality(dt, now) {
   slow = dt > 1 / 40 ? slow + dt : Math.max(0, slow - dt * .5);
   if (slow < 3) return;
   slow = 0; tier++;
-  if (tier === 1) renderer.setPixelRatio(1);
-  if (tier === 2) renderer.setPixelRatio(.75);
+  if (tier === 1) renderer.setPixelRatio(.85);
+  if (tier === 2) renderer.setPixelRatio(.7);
   if (tier === 3) theme.degrade();
   theme.resize();
   console.info('[cave] quality tier', tier);
@@ -116,6 +162,8 @@ function connect() {
     const msg = JSON.parse(ev.data);
     if (msg.type === 'init' || msg.type === 'config') {
       tvScreen.setConfig(msg.config);
+      presenter = msg.config.presenter || null;
+      theme?.setPresenter?.(presenter);
       tvScreen.setFocus(!!msg.config.focus);
       if (!started) { started = true; tvScreen.start(); }
     }
@@ -139,6 +187,10 @@ addEventListener('keydown', (ev) => {
   const k = ev.key.toLowerCase();
   if (/^[1-9]$/.test(k)) loadTheme(Number(k));
   if (k === 'f') document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
+  if (k === 'p') fpsEl.style.display = fpsEl.style.display === 'none' ? 'block' : 'none';
   if (k === 'q') tvScreen.setFocus(!tvScreen.focus);
-  if (k === 'arrowright' || k === ' ') tvScreen.next();
+  if (k === 'arrowright') { ev.preventDefault(); tvScreen.right(); }
+  if (k === 'arrowleft') { ev.preventDefault(); tvScreen.left(); }
+  if (k === 'arrowup') { ev.preventDefault(); tvScreen.up(); }
+  if (k === 'arrowdown') { ev.preventDefault(); tvScreen.auto(); }
 });

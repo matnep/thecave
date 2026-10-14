@@ -11,10 +11,14 @@
   canvas { display: block; }
   body.idle { cursor: none; }
   /* the scene fades up from black like the fire is being lit */
-  #fade { position: fixed; inset: 0; background: #000; pointer-events: none; transition: opacity 2.5s ease; }
+  #fade { position: fixed; inset: 0; z-index: 5; background: #000; pointer-events: none; transition: opacity 2.5s ease; }
+  /* partner logos, bottom centre */
+  #partners { position: fixed; left: 50%; bottom: 2.4vh; z-index: 2; transform: translateX(-50%); height: 3.4vh; width: auto;
+              pointer-events: none; opacity: .92; transition: opacity .9s ease; }
+  body.zoomed #partners { opacity: 0; }   /* out of the way while the camera is in the TV */
   body.ready #fade { opacity: 0; }
   body.ready #fade.on { opacity: 1; transition-duration: .8s; }   /* theme switch */
-  #toast { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); padding: 8px 16px; border-radius: 6px;
+  #toast { z-index: 6; position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); padding: 8px 16px; border-radius: 6px;
            background: rgba(0,0,0,.6); color: #f1e2c8; font: 16px VT323, monospace; letter-spacing: .08em; opacity: 0; transition: opacity .3s; }
   #toast.show { opacity: 1; }
   #status { position: fixed; left: 50%; top: 12px; transform: translateX(-50%); font: 14px monospace; color: #ff9a6b; opacity: 0; }
@@ -28,6 +32,7 @@
 </head>
 <body>
   <span class="preload">a</span><span class="preload">a</span>
+  <img id="partners" src="/partners.png" alt="Partners">
   <div id="fade"></div>
   <div id="status">reconnecting…</div>
   <div id="toast"></div>

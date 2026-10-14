@@ -1,6 +1,6 @@
 // The Cave room: one Durable Object holds everything for the event.
 //   questions  SQLite table; status = pending | approved | answered | rejected
-//   settings   SQLite key/value (JSON): moderation, focus, presenters, live presenter, TV slides, footer
+//   settings   SQLite key/value (JSON): moderation, focus, presenters, live presenter, TV caption
 // Live clients connect over hibernatable WebSockets, tagged 'display' (backdrop) or 'admin'.
 import { DurableObject } from 'cloudflare:workers';
 
@@ -8,20 +8,12 @@ const MAX_LEN = 140;
 const NAME_LEN = 24;
 const COOLDOWN_MS = 5000;
 
-export const DEFAULT_SLIDES = [
-  { kind: 'text', lines: ['BIG IDEAS.', 'REAL PEOPLE.'], sub: 'stories from the people building it', secs: 7 },
-  { kind: 'qr', secs: 11 },
-  { kind: 'presenter', secs: 7 },
-  { kind: 'text', lines: ['AI. TECH.', 'MALAYSIA.'], sub: 'old walls. new ideas.', secs: 7 },
-  { kind: 'qr', secs: 11 },
-];
 const DEFAULTS = {
   moderation: false,
   focus: false,
   presenters: [],          // [{ id, name, title }]
   live: null,              // id of the presenter on stage
-  slides: DEFAULT_SLIDES,
-  footer: 'AIBUILDERSCHOOL.COM',
+  caption: 'SCAN TO ASK A QUESTION',   // the only line of text under the QR on the TV
 };
 
 // Anything matching goes to "pending" for a human to check, even with moderation off.
@@ -68,7 +60,7 @@ export class Room extends DurableObject {
   }
   // what the backdrop needs
   config() {
-    return { slides: this.setting('slides'), presenter: this.livePresenter(), footer: this.setting('footer'), focus: this.setting('focus') };
+    return { caption: this.setting('caption'), presenter: this.livePresenter(), focus: this.setting('focus') };
   }
 
   // ------------------------------------------------------------ live connections
@@ -97,7 +89,7 @@ export class Room extends DurableObject {
       questions: this.sql.exec('SELECT * FROM questions ORDER BY id DESC LIMIT 1000').toArray(),
       settings: {
         moderation: this.setting('moderation'), focus: this.setting('focus'), presenters: this.setting('presenters'),
-        live: this.setting('live'), slides: this.setting('slides'), footer: this.setting('footer'),
+        live: this.setting('live'), caption: this.setting('caption'),
       },
       formUrl: `${(this.env.PUBLIC_URL || '').replace(/\/$/, '')}/form`,
     };
@@ -185,23 +177,8 @@ export class Room extends DurableObject {
         this.put('live', body.id ? clean(body.id, 40) : null);
         this.broadcast('display', { type: 'config', config: this.config() });
         break;
-      case 'tv': {
-        const slides = (Array.isArray(body.slides) ? body.slides : []).slice(0, 20).map((s) => {
-          const kind = ['text', 'qr', 'presenter'].includes(s.kind) ? s.kind : 'text';
-          const secs = Math.min(120, Math.max(3, Number(s.secs) || 7));
-          return kind === 'text'
-            ? { kind, secs, lines: (Array.isArray(s.lines) ? s.lines : []).map((l) => clean(l, 24)).filter(Boolean).slice(0, 3), sub: clean(s.sub, 60) }
-            : { kind, secs };
-        }).filter((s) => s.kind !== 'text' || s.lines.length);
-        if (!slides.length) return { error: 'Keep at least one slide.' };
-        this.put('slides', slides);
-        if (typeof body.footer === 'string') this.put('footer', clean(body.footer, 40));
-        this.broadcast('display', { type: 'config', config: this.config() });
-        break;
-      }
-      case 'tv-reset':
-        this.put('slides', DEFAULT_SLIDES);
-        this.put('footer', DEFAULTS.footer);
+      case 'caption':
+        this.put('caption', clean(body.caption, 40).toUpperCase() || DEFAULTS.caption);
         this.broadcast('display', { type: 'config', config: this.config() });
         break;
       default:

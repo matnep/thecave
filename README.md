@@ -14,8 +14,8 @@ Runs on Cloudflare: a Worker serves the site and API, and one Durable Object kee
   Approve, put on the TV now, mark answered, hide, restore, delete.
   Questions containing swear words (English and Malay) are always held in Waiting, even with moderation off.
 - **Live controls**: approve-before-showing (moderation), zoom the backdrop into the TV QR, clear the TV queue.
-- **Presenters**: add names and talk titles; "Put on stage" shows them on the TV and the form, and tags new questions with them.
-- **TV slides**: edit, reorder, add or remove the rotating slides (text, QR, presenter), their timing, and the footer.
+- **Presenters**: add names and talk titles; "Put on stage" shows them under THE CAVE logo on the backdrop and on the form, and tags new questions with them.
+- **TV**: the caption under the QR. The TV shows nothing else besides the QR and audience questions.
 
 ## Run locally
 ```
@@ -49,12 +49,19 @@ The last theme used is remembered; `/?theme=1` forces one.
 
 To add a theme: copy `firelit-cave.js`, change it, and register it in the `THEMES` list at the top of `public/js/main.js`.
 
-Shared pieces: `public/js/main.js` (renderer, keys, WebSocket to the room) · `tv-screen.js` (what's on the TV) · `tv.js` (the TV model) · `fire.js` (campfire) · `wall-art.js` (logo painting)
+Shared pieces: `public/js/main.js` (renderer, keys, WebSocket to the room, ping sound) · `tv-screen.js` (what's on the TV) · `tv.js` (the TV model) · `themes/treasure.js` (the hoard) · `fire.js` (campfire) · `wall-art.js` (logo painting)
 
-The QR code only ever appears on the TV, between the slides you set in /admin.
-When a question arrives it switches to static, types the question out, and shows a small QR in the TV's own corner.
+The TV shows the QR code (with its caption) and nothing else until a question arrives. Then it pings, the TV jolts,
+it switches to static and types the question out, with a small QR in the corner. The ping needs one key press or click
+on the backdrop first (browsers block sound until then); pressing **F** for fullscreen is enough.
+The TV's glass is cracked in one corner and the cabinet is worn; a gold hoard glints under it, with a live clock on the chest. Partner logos (`public/partners.png`) sit bottom centre and fade out while zoomed into the TV.
 From /admin you can bring any question back with **Show again**.
 
-**Backdrop keys:** `1`–`9` theme · `F` fullscreen · `Q` camera moves into the TV so the QR fills the screen (press again to pull back) · `→`/`Space` next slide
+**Backdrop keys:** `1`–`9` theme · `F` fullscreen · `Q` camera zooms in/out of the TV (shows whatever is on it)
 
-**Performance:** open the backdrop in Chrome/Edge with hardware acceleration on. If frames drop, it lowers resolution, then shadows, automatically.
+**TV keys:** `→` next question (waiting ones first, then forward through those already shown) · `←` previous question · `↑` show the QR · `↓` back to automatic.
+After any arrow key the TV holds what you picked; new questions still ping and wait until you press `→` (or `↓` to let them play automatically).
+
+**Performance:** open the backdrop in Chrome/Edge with hardware acceleration on. Press **P** for an FPS meter.
+The scene renders at 1x pixel ratio with MSAA, merges static rock/TV/campfire parts into a few draw calls, draws the sun shadow once, and renders the water reflection at half resolution (blurred, so it stays soft).
+If frames still drop it steps down automatically: lower resolution, then no shadows, bloom or live reflection (the meter shows the step as q0 to q3).

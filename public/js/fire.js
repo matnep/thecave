@@ -1,5 +1,6 @@
 // Campfire: coals, a ring of stones, a log teepee, shader flames, a few embers and the flickering light.
 import * as THREE from 'three';
+import { mergeStatic } from './merge.js';
 
 const flameMat = (seed, hue) => new THREE.ShaderMaterial({
   uniforms: { uTime: { value: 0 }, uSeed: { value: seed }, uHue: { value: hue }, uPower: { value: 1 } },
@@ -65,6 +66,8 @@ export function makeFire(scene, at, makeStone, stoneMat, noise) {
     log.quaternion.setFromUnitVectors(UP, dir.normalize());
   }
 
+  mergeStatic(g, (m) => m === stoneMat || m === logMat);   // 11 stones + 6 logs -> 2 draw calls
+
   const flames = [
     [1.5, 2.4, 0, 0, .1], [1.15, 1.8, -.25, .1, .05], [1.1, 1.7, .28, -.1, .12], [.8, 1.3, .05, .25, .16],
   ].map(([w, h, dx, dz, hue], i) => {
@@ -99,16 +102,12 @@ export function makeFire(scene, at, makeStone, stoneMat, noise) {
   const light = new THREE.PointLight(0xff7a2e, 0, 0, 1.7);
   light.position.set(0, 1.3, 0);
   g.add(light);
-  const spill = new THREE.PointLight(0xff6a20, 0, 0, 1.8);
-  spill.position.set(0, .5, .5);
-  g.add(spill);
 
   return {
     light,
     update(t, dt, ig, camera) {
       const flick = .78 + .14 * noise.noise(t * 2.3, 0) + .08 * noise.noise(t * 9.5, 4);
-      light.intensity = 30 * flick * ig;
-      spill.intensity = 7 * flick * ig;
+      light.intensity = 34 * flick * ig;
       light.position.set(noise.noise(t * 1.7, 9) * .12, 1.3 + noise.noise(t * 2.1, 3) * .1, 0);
       coalMat.emissiveIntensity = (1.2 + .6 * noise.noise(t * .8, 2)) * ig;
       logMat.emissiveIntensity = (.2 + .15 * noise.noise(t * 1.3, 5)) * ig;

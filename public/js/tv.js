@@ -1,21 +1,72 @@
 // The TV, as a stylised hand-painted game prop: a chunky chamfered wooden cabinet that tapers a little
 // towards the top, a thick bezel, oversized low-poly knobs, splayed stubby legs and bent rabbit ears.
-// Faces get flat painted colours (lighter on top, darker underneath) to match the cave's art style.
+// Faces get flat painted colours (lighter on top, darker underneath) to match the cave's art style,
+// with scuffs and worn patches, and the glass has a cracked corner from years in the cave.
 // The glass shows `screenTex` through a CRT shader (barrel, scanlines, static, rolling band).
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { mergeStatic } from './merge.js';
 
 const hex = (h) => new THREE.Color(h);
+const SCUFF = hex(0xc9a072);
+
+// cracks spreading from a knock in the top-right corner of the glass.
+// R = bright edge of the crack, G = dark halo. Kept clear of the QR so it always scans.
+function crackTexture() {
+  const W = 1024, H = 768;
+  const c = document.createElement('canvas');
+  c.width = W; c.height = H;
+  const x = c.getContext('2d');
+  let seed = 11;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  const paths = [];
+  const branch = (px, py, ang, len, depth) => {
+    const pts = [[px, py]];
+    for (let s = 0; s < len; s += 14) {
+      ang += (rnd() - .5) * .5;
+      px += Math.cos(ang) * 14; py += Math.sin(ang) * 14;
+      pts.push([px, py]);
+      if (depth < 2 && rnd() < .07) branch(px, py, ang + (rnd() < .5 ? .7 : -.7), len * .45, depth + 1);
+    }
+    paths.push(pts);
+  };
+  const IX = 952, IY = 78;                                // impact point
+  for (let i = 0; i < 7; i++) branch(IX, IY, Math.PI * (.45 + i * .16) + (rnd() - .5) * .2, 120 + rnd() * 190, 0);
+  // a little ring of shattered glass round the impact
+  x.save();
+  x.beginPath(); x.rect(0, 0, W, H); x.rect(212, 52, 600, 600); x.clip('evenodd');   // never over the QR
+  x.lineCap = 'round';
+  for (const [w, color] of [[7, 'rgb(0,255,0)'], [1.6, 'rgb(255,0,0)']]) {
+    x.globalCompositeOperation = 'lighter';
+    x.strokeStyle = color; x.lineWidth = w;
+    for (const pts of paths) {
+      x.beginPath(); x.moveTo(...pts[0]);
+      for (const p of pts.slice(1)) x.lineTo(...p);
+      x.stroke();
+    }
+    x.beginPath(); x.arc(IX, IY, 16, 0, 6.283); x.stroke();
+  }
+  x.restore();
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.NoColorSpace;
+  return t;
+}
 
 // flat per-face colour: light from above, a little random variation, like painted planes
-function painted(geo, base, { top = .25, bottom = -.3, jitter = .06, seed = 1 } = {}) {
+function painted(geo, base, { top = .25, bottom = -.3, jitter = .06, seed = 1, wear = 0 } = {}) {
   geo = geo.index ? geo.toNonIndexed() : geo;
   geo.computeVertexNormals();
   const n = geo.attributes.normal, col = new Float32Array(n.count * 3), c = new THREE.Color();
   for (let f = 0; f < n.count; f += 3) {
     const ny = (n.getY(f) + n.getY(f + 1) + n.getY(f + 2)) / 3;
     const r = Math.sin(f * 12.9898 + seed * 78.233) * 43758.5453;
-    c.copy(base).multiplyScalar(1 + (ny > 0 ? ny * top : -ny * bottom) + ((r - Math.floor(r)) - .5) * jitter);
+    const rnd = r - Math.floor(r);
+    c.copy(base).multiplyScalar(1 + (ny > 0 ? ny * top : -ny * bottom) + (rnd - .5) * jitter);
+    if (wear) {   // scuffs (darker) and rubbed-through paint (lighter, toward bare wood)
+      const w = Math.sin(f * 4.137 + seed * 9.1) * 9631.7; const wr = w - Math.floor(w);
+      if (wr < wear) c.multiplyScalar(.55 + rnd * .2);
+      else if (wr > 1 - wear * .6) c.lerp(SCUFF, .45);
+    }
     for (let k = 0; k < 3; k++) col.set([c.r, c.g, c.b], (f + k) * 3);
   }
   geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
@@ -43,7 +94,7 @@ export function makeTV(screenTex) {
       p.setZ(i, p.getZ(i) * (1 - (p.getY(i) / BH + .5) * .04));
     }
   }
-  part(body, 0x8a4a26, [0, LEG + BH / 2, 0], [0, 0, 0], { top: .45, bottom: -.45 });
+  part(body, 0x8a4a26, [0, LEG + BH / 2, 0], [0, 0, 0], { top: .45, bottom: -.45, wear: .12, seed: 3 });
   // a lighter wooden lip around the front
   part(new RoundedBoxGeometry(BW * .97, BH * .95, .08, 1, .04), 0xa8602f, [0, LEG + BH / 2, BD / 2 - .02]);
 
@@ -61,10 +112,10 @@ export function makeTV(screenTex) {
     screenGeo.computeVertexNormals();
   }
   const screenMat = new THREE.ShaderMaterial({
-    uniforms: { uMap: { value: screenTex }, uTime: { value: 0 }, uStatic: { value: 0 }, uFocus: { value: 0 } },
+    uniforms: { uMap: { value: screenTex }, uCrack: { value: crackTexture() }, uTime: { value: 0 }, uStatic: { value: 0 }, uFocus: { value: 0 } },
     vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.); }`,
     fragmentShader: `
-      varying vec2 vUv; uniform sampler2D uMap; uniform float uTime, uStatic, uFocus;
+      varying vec2 vUv; uniform sampler2D uMap, uCrack; uniform float uTime, uStatic, uFocus;
       float hash(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }
       void main(){
         vec2 c = vUv - .5;
@@ -78,6 +129,10 @@ export function makeTV(screenTex) {
         float n = hash(floor(vUv * vec2(300., 225.)) + fract(uTime * 9.) * 97.);
         col = mix(col, vec3(n * .95, n * .82, n * .62), uStatic);
         col *= mix(.5 + .5 * smoothstep(.78, .3, length(c * vec2(1.05, 1.2))), 1., uFocus * .8);
+        vec4 cr = texture2D(uCrack, vUv);
+        const float CRACK = .5;                            // crack strength (1 = full)
+        col *= 1. - clamp(cr.g - cr.r, 0., 1.) * .55 * CRACK;   // dark halo along the cracks
+        col += cr.r * vec3(.85, .8, .7) * .32 * CRACK;           // light catching the broken edge
         if (uv.x < 0. || uv.x > 1. || uv.y < 0. || uv.y > 1.) col = vec3(0.);
         gl_FragColor = vec4(col, 1.);
       }`,
@@ -120,6 +175,9 @@ export function makeTV(screenTex) {
   const tvLight = new THREE.PointLight(0xffa04a, 2.5, 0, 1.8);
   tvLight.position.set(SX, SY, BD / 2 + .9);
   tv.add(tvLight);
+
+  // ~25 cabinet pieces share one painted material: bake them into a single draw call
+  mergeStatic(tv, (m) => m === mat);
 
   return { tv, screen, screenMat, tvLight, led };
 }

@@ -27,9 +27,8 @@
 
   .brand { font: 15px/1.05 Anton, sans-serif; letter-spacing: .02em; }
   .brand b { color: #de5428; font-weight: 400; }
-  .logo { display: flex; align-items: flex-end; gap: 6px; margin-top: 8px; }
-  .logo .the { writing-mode: vertical-rl; transform: rotate(180deg); font: 30px/1 Anton, sans-serif; }
-  .logo .cave { font: 96px/.8 Anton, sans-serif; letter-spacing: .01em; }
+  .logo { margin-top: 10px; width: 100%; max-width: 330px; aspect-ratio: 687 / 338; }
+  .logo canvas { width: 100%; height: auto; display: block; filter: drop-shadow(0 4px 14px rgba(0,0,0,.5)); }
   .tag { margin-top: 10px; font: 13px Anton, sans-serif; letter-spacing: .32em; opacity: .7; }
 
   .crt {
@@ -63,7 +62,7 @@
 <body>
 <main>
   <div class="brand">AI BUILDER SCHOOL</div>
-  <div class="logo"><span class="the">THE</span><span class="cave">CAVE</span></div>
+  <div class="logo" id="logo" role="img" aria-label="The Cave"></div>
 
   <div class="crt"><span id="who"></span>&gt; GOT A QUESTION?<br>&gt; IT GOES STRAIGHT TO THE TV<span class="blink">_</span></div>
 
@@ -112,6 +111,15 @@
       setTimeout(() => ($('btn').disabled = false), 2500);
     }
   });
+</script>
+<script type="module">
+  // the real logo, turned into paint (outside dropped, block charcoal, letters cream) like on the backdrop
+  import { logoPaint } from '/js/wall-art.js';
+  await document.fonts.ready;
+  const img = new Image();
+  img.src = '/logo.png';
+  await img.decode();
+  document.getElementById('logo').append(logoPaint(img, 900));
 </script>
 </body>
 </html>

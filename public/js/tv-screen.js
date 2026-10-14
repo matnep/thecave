@@ -1,19 +1,18 @@
 // What's on the TV. Draws onto a 1024x768 canvas that the 3D scene uses as the CRT texture.
-// Owns the running order: idle slides → QR → … and interrupts with audience questions.
-// The slides, footer and the presenter on stage come from the admin page (setConfig).
+// Only two things ever show: the QR code (with one caption line) and audience questions.
+// Automatic: questions queue up; each is typed out, held, then the TV goes back to the QR.
+// Manual (presenter keys): → next question, ← previous, ↑ the QR, ↓ back to automatic.
+// While manual, whatever was picked stays up; new questions still ping and wait in the queue.
+// Switching content waits for the static burst to peak (SWAP_MS) so the change is hidden in the noise.
 
 const W = 1024, H = 768;
 const AMBER = '#ffb238';
-const AMBER_DIM = 'rgba(255,178,56,.55)';
-const MX = 78, TOP = 66, BOTTOM = 704;   // safe area inside the curved glass
-
-// used until the server sends the real config
-const FALLBACK_SLIDES = [
-  { kind: 'text', lines: ['BIG IDEAS.', 'REAL PEOPLE.'], sub: 'stories from the people building it', secs: 7 },
-  { kind: 'qr', secs: 11 },
-];
+const AMBER_DIM = 'rgba(255,178,56,.6)';
+const MX = 78;   // safe margin inside the curved glass
 const QUESTION_MS = 15000;
 const TYPE_CPS = 38;
+const SWAP_MS = 140;
+const HISTORY = 200;
 
 export class TVScreen {
   constructor() {
@@ -23,90 +22,117 @@ export class TVScreen {
     this.qr = new Image();
     this.qr.onload = () => (this.dirty = true);
     this.qr.src = '/api/qr.svg';
-    this.onSwitch = () => {};
-    this.queue = [];
+    this.onSwitch = () => {};       // content is about to change (start the static burst)
+    this.onQuestion = () => {};     // a new question just arrived (ping + shake)
+    this.queue = [];                // waiting to be shown
+    this.history = [];              // already shown, oldest first
+    this.idx = -1;                  // position in history while showing a question
+    this.manual = false;
     this.current = null;
-    this.slideIndex = 0;
-    this.slides = FALLBACK_SLIDES;
-    this.presenter = null;
-    this.footer = 'AIBUILDERSCHOOL.COM';
-    this.focus = false;
+    this.pending = null;            // what's about to replace current, mid-static
+    this.caption = 'SCAN TO ASK A QUESTION';
+    this.focus = false;             // camera zoom only; doesn't change what's on the TV
     this.timer = null;
+    this.swapTimer = null;
     this.dirty = true;
     this.lastBlink = -1;
+    this.lastTyped = -1;
   }
 
   // ---------- running order ----------
   start() { this.next(); }
 
+  // automatic flow
   next() {
     clearTimeout(this.timer);
-    if (this.focus) return this.show({ kind: 'qr', big: true });
-    if (this.queue.length) {
-      const m = this.queue.shift();
-      this.show({ kind: 'question', m, waiting: this.queue.length });
-      this.timer = setTimeout(() => this.next(), QUESTION_MS + m.text.length * 25);
-      return;
-    }
-    // the "presenter" slide only shows while someone is on stage
-    let s;
-    for (let tries = 0; tries < this.slides.length; tries++) {
-      s = this.slides[this.slideIndex % this.slides.length];
-      this.slideIndex = (this.slideIndex + 1) % this.slides.length;
-      if (s.kind !== 'presenter' || this.presenter) break;
-      s = null;
-    }
-    s = s || { kind: 'qr', secs: 10 };
-    this.show(s);
-    this.timer = setTimeout(() => this.next(), (s.secs || 7) * 1000);
+    if (this.manual) return;
+    if (this.queue.length) return this.showQuestion(this.queue.shift());
+    this.showQr();
   }
 
-  setConfig({ slides, presenter, footer } = {}) {
-    if (Array.isArray(slides) && slides.length) this.slides = slides;
-    this.presenter = presenter || null;
-    if (typeof footer === 'string') this.footer = footer;
-    // redraw whatever is showing; a slide that no longer exists simply ends on its timer
-    if (this.current?.kind === 'presenter' && !this.presenter) this.next();
-    this.dirty = true;
+  showQr() {
+    clearTimeout(this.timer);
+    if ((this.pending || this.current)?.kind === 'qr') return;
+    this.show({ kind: 'qr' });
+  }
+
+  showQuestion(m, { replay = false } = {}) {
+    clearTimeout(this.timer);
+    if (!replay) {
+      this.history = this.history.filter((q) => q.id !== m.id);
+      this.history.push(m);
+      if (this.history.length > HISTORY) this.history.shift();
+    }
+    this.idx = this.history.findIndex((q) => q.id === m.id);
+    this.show({ kind: 'question', m, instant: replay });
+    if (!this.manual) this.timer = setTimeout(() => this.next(), QUESTION_MS + m.text.length * 25 + SWAP_MS);
   }
 
   show(item) {
-    this.current = { ...item, at: performance.now() };
-    this.dirty = true;
     this.onSwitch(item);
+    clearTimeout(this.swapTimer);
+    this.pending = item;
+    this.swapTimer = setTimeout(() => {
+      this.pending = null;
+      // a replayed question appears already typed out
+      this.current = { ...item, at: performance.now() - (item.instant ? 1e6 : 0) };
+      this.dirty = true;
+    }, SWAP_MS);
   }
 
   enqueue(m) {
     this.queue.push(m);
-    if (!this.focus && this.current?.kind !== 'question') this.next();
+    this.onQuestion(m);
+    if (!this.manual && (this.pending || this.current)?.kind !== 'question') this.next();
   }
+  // admin "put on TV now": always shows straight away
   spotlight(m) {
     this.queue = this.queue.filter((q) => q.id !== m.id);
-    this.queue.unshift(m);
-    if (!this.focus) this.next();
+    this.onQuestion(m);
+    this.showQuestion(m);
   }
   remove(id) {
     this.queue = this.queue.filter((q) => q.id !== id);
-    if (this.current?.m?.id === id) this.next();
+    this.history = this.history.filter((q) => q.id !== id);
+    if ((this.pending || this.current)?.m?.id === id) this.manual ? this.show({ kind: 'qr' }) : this.next();
   }
   clear() {
     this.queue = [];
-    if (this.current?.kind === 'question') this.next();
+    if (!this.manual && (this.pending || this.current)?.kind === 'question') this.next();
   }
-  setFocus(on) {
-    if (this.focus === on) return;
-    this.focus = on;
-    this.next();
+  setFocus(on) { this.focus = on; }
+  setConfig({ caption } = {}) {
+    if (typeof caption === 'string' && caption.trim()) this.caption = caption.trim().toUpperCase();
+    this.dirty = true;
   }
+
+  // ---------- presenter keys ----------
+  right() {
+    this.manual = true;
+    if (this.queue.length) return this.showQuestion(this.queue.shift());
+    const showingQ = (this.pending || this.current)?.kind === 'question';
+    const i = showingQ ? this.idx + 1 : this.history.length - 1;   // from the QR, → brings back the latest
+    if (i >= 0 && i < this.history.length && !(showingQ && i === this.idx)) this.showQuestion(this.history[i], { replay: true });
+  }
+  left() {
+    this.manual = true;
+    const showingQ = (this.pending || this.current)?.kind === 'question';
+    const i = showingQ ? this.idx - 1 : this.history.length - 1;
+    if (i >= 0) this.showQuestion(this.history[i], { replay: true });
+  }
+  up() { this.manual = true; this.showQr(); }
+  auto() { this.manual = false; this.next(); }
+
   get isLive() { return this.current?.kind === 'question'; }
 
   // ---------- drawing ----------
   // returns true when the canvas changed (so the texture needs re-uploading)
   draw(now) {
     const blink = Math.floor(now / 530) % 2;
-    const typing = this.current?.kind === 'question' && this.typed(now) < this.current.m.text.length;
-    if (!this.dirty && !typing && blink === this.lastBlink) return false;
-    this.dirty = false; this.lastBlink = blink;
+    // while a question types out, redraw only when another letter appears (the canvas upload is the costly part)
+    const typedNow = this.current?.kind === 'question' ? Math.min(this.typed(now), this.current.m.text.length + 2) : -1;
+    if (!this.dirty && typedNow === this.lastTyped && blink === this.lastBlink) return false;
+    this.dirty = false; this.lastBlink = blink; this.lastTyped = typedNow;
 
     const c = this.ctx;
     c.setTransform(1, 0, 0, 1, 0, 0);
@@ -120,11 +146,7 @@ export class TVScreen {
 
     const cur = this.current;
     if (!cur) return true;
-
-    if (!(cur.kind === 'qr' && cur.big)) this.chrome(cur, blink);
-    if (cur.kind === 'text') this.textSlide(cur);
-    else if (cur.kind === 'presenter') this.presenterSlide();
-    else if (cur.kind === 'qr') cur.big ? this.bigQr() : this.qrSlide(blink);
+    if (cur.kind === 'qr') this.qrView(blink);
     else if (cur.kind === 'question') this.question(cur, now, blink);
     return true;
   }
@@ -140,94 +162,12 @@ export class TVScreen {
     c.textAlign = align;
     c.fillText(str, x, y);
   }
-
-  chrome(cur, blink) {
-    const c = this.ctx;
-    this.glow(true);
-    const live = cur.kind === 'question';
-    if (!live || blink) {
-      c.fillStyle = live ? '#ff5a2a' : AMBER;
-      c.beginPath(); c.arc(MX + 10, TOP + 1, 9, 0, 6.283); c.fill();
-    }
-    this.text(live ? 'THE CAVE // LIVE QUESTION' : 'THE CAVE // ON AIR', MX + 32, TOP + 13, 40);
-    const t = new Date();
-    this.text(`${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}`, W - MX, TOP + 13, 40, AMBER_DIM, 'right');
-    c.fillStyle = 'rgba(255,178,56,.25)';
-    c.fillRect(MX, TOP + 34, W - MX * 2, 2);
-    this.text(this.footer.toUpperCase(), MX, BOTTOM, 36, AMBER_DIM);
-    this.text('CH 03', W - MX, BOTTOM, 36, AMBER_DIM, 'right');
-    this.glow(false);
-  }
-
-  textSlide(s) {
-    this.glow(true);
-    const lines = s.lines || [];
-    const longest = lines.reduce((a, b) => (b.length > a.length ? b : a), '');
-    const size = this.fit(longest, W - MX * 2, lines.length > 2 ? 120 : 156, 60);
-    let y = (lines.length > 2 ? 250 : 300) - (156 - size) * .4;
-    for (const line of lines) { this.text(line, MX - 4, y, size); y += size * .85; }
-    if (s.sub) this.text(s.sub.toUpperCase(), MX, y + 6, this.fit(s.sub.toUpperCase(), W - MX * 2, 40, 24), AMBER_DIM);
-    this.glow(false);
-  }
-
-  presenterSlide() {
-    const p = this.presenter;
-    if (!p) return;
-    this.glow(true);
-    this.text('> ON STAGE NOW', MX, 200, 44, '#ff7a3a');
-    const name = p.name.toUpperCase();
-    const size = this.fit(name, W - MX * 2, 140, 56);
-    this.ctx.font = `${size}px VT323`;
-    const nameLines = this.wrap(name, W - MX * 2).slice(0, 2);
-    let y = 200 + size * .95;
-    for (const l of nameLines) { this.text(l, MX - 4, y, size); y += size * .85; }
-    if (p.title) {
-      this.ctx.font = '44px VT323';
-      for (const l of this.wrap(p.title.toUpperCase(), W - MX * 2).slice(0, 3)) { y += 46; this.text(l, MX, y, 44, AMBER_DIM); }
-    }
-    this.glow(false);
-  }
-
-  drawQr(x, y, size) {
-    const c = this.ctx;
-    this.glow(false);
-    c.fillStyle = '#f4e6cf';
-    c.fillRect(x - 10, y - 10, size + 20, size + 20);
-    if (this.qr.complete && this.qr.naturalWidth) c.drawImage(this.qr, x, y, size, size);
-  }
-
   fit(str, maxW, start, min = 30) {
     const c = this.ctx;
     let size = start;
     do { c.font = `${size}px VT323`; } while (c.measureText(str).width > maxW && (size -= 2) > min);
     return size;
   }
-
-  qrSlide(blink) {
-    const size = 470;
-    this.drawQr(MX + 10, 140, size);
-    const x = MX + size + 52, maxW = W - MX - x;
-    this.glow(true);
-    const big = this.fit('QUESTION?', maxW, 110);
-    this.text('GOT A', x, 270, big);
-    this.text('QUESTION?', x, 270 + big * .92, big);
-    const small = this.fit('THE CONVERSATION', maxW, 40);
-    this.text('SCAN TO JOIN', x, 470, small, AMBER_DIM);
-    this.text('THE CONVERSATION' + (blink ? '_' : ''), x, 470 + small * 1.05, small, AMBER_DIM);
-    this.glow(false);
-  }
-
-  bigQr() {
-    // the camera dollies in for this one, so the code gets nearly the whole tube
-    const size = 560;
-    this.drawQr((W - size) / 2, 62, size);
-    this.glow(true);
-    this.text('SCAN TO ASK A QUESTION', W / 2, 712, 52, AMBER, 'center');
-    this.glow(false);
-  }
-
-  typed(now) { return Math.floor(((now - this.current.at) / 1000 - .35) * TYPE_CPS); }
-
   wrap(str, maxW) {
     const c = this.ctx, lines = [];
     let line = '';
@@ -239,25 +179,42 @@ export class TVScreen {
     return lines;
   }
 
+  drawQr(x, y, size) {
+    const c = this.ctx;
+    this.glow(false);
+    c.fillStyle = '#f4e6cf';
+    c.fillRect(x - 10, y - 10, size + 20, size + 20);
+    if (this.qr.complete && this.qr.naturalWidth) c.drawImage(this.qr, x, y, size, size);
+  }
+
+  // the QR, nearly filling the tube, with one caption line underneath
+  qrView(blink) {
+    const size = 560;
+    this.drawQr((W - size) / 2, 62, size);
+    this.glow(true);
+    const cap = this.caption + (blink ? '_' : ' ');
+    this.text(cap, W / 2, 712, this.fit(cap, W - MX * 2, 54, 30), AMBER, 'center');
+    this.glow(false);
+  }
+
+  typed(now) { return Math.floor(((now - this.current.at) / 1000 - .35) * TYPE_CPS); }
+
   question(cur, now, blink) {
     const m = cur.m;
     const qrSize = 150;
     const maxW = W - MX * 2 - qrSize - 40;
     this.glow(true);
-    const who = m.presenter ? `> QUESTION FOR ${m.presenter.toUpperCase()}` : '> INCOMING QUESTION';
-    const kicker = cur.waiting ? `${who}  [+${cur.waiting} WAITING]` : who;
-    this.text(kicker, MX, 160, this.fit(kicker, W - MX * 2, 40, 26), '#ff7a3a');
-
     // largest size where the whole question fits
     const full = `"${m.text}"`;
-    let size = 92, lines;
+    let size = 104, lines;
     for (; size >= 40; size -= 4) {
       this.ctx.font = `${size}px VT323`;
       lines = this.wrap(full, maxW);
-      if (lines.length * size * .95 <= 380) break;
+      if (lines.length * size * .95 <= 470) break;
     }
+    const blockH = lines.length * size * .95;
     let left = Math.max(0, this.typed(now)) + 1;     // +1 for the opening quote
-    let y = 230 + size * .7;
+    let y = Math.max(110, (H - blockH) / 2 - 30) + size * .72;
     for (const line of lines) {
       const shown = line.slice(0, Math.max(0, left));
       this.text(shown, MX, y, size);
@@ -273,8 +230,8 @@ export class TVScreen {
       }
       y += size * .95;
     }
-    if (m.name) this.text(`- ${m.name.toUpperCase()}`, MX, 640, 44, AMBER_DIM);
+    if (m.name && left > 0) this.text(`- ${m.name.toUpperCase()}`, MX, Math.min(H - 70, y + 70), 46, AMBER_DIM);
     this.glow(false);
-    this.drawQr(W - MX - qrSize, 500, qrSize);
+    this.drawQr(W - MX - qrSize, H - 70 - qrSize, qrSize);
   }
 }
