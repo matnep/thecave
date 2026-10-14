@@ -2,7 +2,7 @@
 // Owns the renderer, the TV's content (questions/QR), the live connection and the keyboard,
 // and swaps between themes. Each theme lives in ./themes/ and exports `create()`; see firelit-cave.js.
 //
-// Keys:  1–9 switch theme · F fullscreen · Q camera in/out of the TV · P FPS meter
+// Keys:  1–9 switch theme · F fullscreen · Q camera in/out of the TV · P FPS meter · C chromatic aberration
 //        → next question · ← previous question · ↑ show the QR · ↓ back to automatic
 import * as THREE from 'three';
 import { TVScreen } from './tv-screen.js';
@@ -26,7 +26,8 @@ document.body.appendChild(renderer.domElement);
 
 // the TV's content is shared, so a queued question survives a theme switch
 const tvScreen = new TVScreen();
-let presenter = null;   // who's on stage; each theme shows it its own way
+let presenter = null;
+let chromatic = localStorage.getItem('cave-chroma') === '1';   // C toggles; remembered   // who's on stage; each theme shows it its own way
 
 // ---- new-question ping, synthesised (no audio file). Browsers only allow sound after a key press or click,
 // so the context unlocks on the first one (pressing F for fullscreen is enough).
@@ -84,6 +85,7 @@ async function loadTheme(n) {
     if (tier >= 3) theme.degrade();
     tvScreen.onSwitch = (item) => theme.onSwitch(item);
     theme.setPresenter?.(presenter);
+    theme.setChromatic?.(chromatic);
     localStorage.setItem('cave-theme', String(n));
     window.__cave = { theme, themeNum, tvScreen, renderer, ...theme.debug };
   } catch (err) {
@@ -188,6 +190,12 @@ addEventListener('keydown', (ev) => {
   if (/^[1-9]$/.test(k)) loadTheme(Number(k));
   if (k === 'f') document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
   if (k === 'p') fpsEl.style.display = fpsEl.style.display === 'none' ? 'block' : 'none';
+  if (k === 'c') {
+    chromatic = !chromatic;
+    localStorage.setItem('cave-chroma', chromatic ? '1' : '0');
+    theme?.setChromatic?.(chromatic);
+    say(chromatic ? 'Chromatic aberration on' : 'Chromatic aberration off');
+  }
   if (k === 'q') tvScreen.setFocus(!tvScreen.focus);
   if (k === 'arrowright') { ev.preventDefault(); tvScreen.right(); }
   if (k === 'arrowleft') { ev.preventDefault(); tvScreen.left(); }

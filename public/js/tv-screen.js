@@ -7,21 +7,42 @@
 
 const W = 1024, H = 768;
 const AMBER = '#ffb238';
-const AMBER_DIM = 'rgba(255,178,56,.6)';
 const MX = 78;   // safe margin inside the curved glass
 const QUESTION_MS = 15000;
 const TYPE_CPS = 38;
 const SWAP_MS = 140;
 const HISTORY = 200;
+const QR_SIZE = 500;   // leaves room for a big, readable caption underneath
+
+// Turn the server's dark-on-light QR into light-on-transparent at exactly the size it's shown,
+// with crisp module edges (phones read inverted codes fine).
+function invertQr(img, size) {
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const x = c.getContext('2d');
+  x.imageSmoothingEnabled = false;
+  x.drawImage(img, 0, 0, size, size);
+  const data = x.getImageData(0, 0, size, size);
+  const d = data.data;
+  for (let i = 0; i < d.length; i += 4) {
+    const dark = d[i] + d[i + 1] + d[i + 2] < 384;
+    d[i] = 255; d[i + 1] = 178; d[i + 2] = 56;      // AMBER
+    d[i + 3] = dark ? 255 : 0;
+  }
+  x.putImageData(data, 0, 0);
+  return c;
+}
 
 export class TVScreen {
   constructor() {
     this.canvas = document.createElement('canvas');
     this.canvas.width = W; this.canvas.height = H;
     this.ctx = this.canvas.getContext('2d');
-    this.qr = new Image();
-    this.qr.onload = () => (this.dirty = true);
-    this.qr.src = '/api/qr.svg';
+    // the QR is drawn inverted, amber squares straight on the dark glass, so it belongs to the TV
+    this.qr = null;
+    const img = new Image();
+    img.onload = () => { this.qr = invertQr(img, QR_SIZE); this.dirty = true; };
+    img.src = '/api/qr.svg';
     this.onSwitch = () => {};       // content is about to change (start the static burst)
     this.onQuestion = () => {};     // a new question just arrived (ping + shake)
     this.queue = [];                // waiting to be shown
@@ -180,20 +201,18 @@ export class TVScreen {
   }
 
   drawQr(x, y, size) {
-    const c = this.ctx;
     this.glow(false);
-    c.fillStyle = '#f4e6cf';
-    c.fillRect(x - 10, y - 10, size + 20, size + 20);
-    if (this.qr.complete && this.qr.naturalWidth) c.drawImage(this.qr, x, y, size, size);
+    if (this.qr) this.ctx.drawImage(this.qr, x, y, size, size);
   }
 
   // the QR, nearly filling the tube, with one caption line underneath
   qrView(blink) {
-    const size = 560;
-    this.drawQr((W - size) / 2, 62, size);
+    const size = QR_SIZE;
+    this.drawQr((W - size) / 2, 52, size);
     this.glow(true);
     const cap = this.caption + (blink ? '_' : ' ');
-    this.text(cap, W / 2, 712, this.fit(cap, W - MX * 2, 54, 30), AMBER, 'center');
+    // big enough to read from the back of the room (sized to fit the width, up to 88px)
+    this.text(cap, W / 2, 668, this.fit(cap, W - MX * 2, 88, 40), AMBER, 'center');
     this.glow(false);
   }
 
@@ -201,8 +220,7 @@ export class TVScreen {
 
   question(cur, now, blink) {
     const m = cur.m;
-    const qrSize = 150;
-    const maxW = W - MX * 2 - qrSize - 40;
+    const maxW = W - MX * 2;
     this.glow(true);
     // largest size where the whole question fits
     const full = `"${m.text}"`;
@@ -210,7 +228,7 @@ export class TVScreen {
     for (; size >= 40; size -= 4) {
       this.ctx.font = `${size}px VT323`;
       lines = this.wrap(full, maxW);
-      if (lines.length * size * .95 <= 470) break;
+      if (lines.length * size * .95 <= 440) break;
     }
     const blockH = lines.length * size * .95;
     let left = Math.max(0, this.typed(now)) + 1;     // +1 for the opening quote
@@ -230,8 +248,8 @@ export class TVScreen {
       }
       y += size * .95;
     }
-    if (m.name && left > 0) this.text(`- ${m.name.toUpperCase()}`, MX, Math.min(H - 70, y + 70), 46, AMBER_DIM);
+    // who asked: big and full-strength so it reads from the room
+    if (m.name && left > 0) this.text(`- ${m.name.toUpperCase()}`, MX, Math.min(H - 64, y + 96), this.fit(`- ${m.name.toUpperCase()}`, W - MX * 2, 72, 40), AMBER);
     this.glow(false);
-    this.drawQr(W - MX - qrSize, H - 70 - qrSize, qrSize);
   }
 }

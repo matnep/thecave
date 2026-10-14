@@ -52,16 +52,16 @@ To add a theme: copy `firelit-cave.js`, change it, and register it in the `THEME
 Shared pieces: `public/js/main.js` (renderer, keys, WebSocket to the room, ping sound) · `tv-screen.js` (what's on the TV) · `tv.js` (the TV model) · `themes/treasure.js` (the hoard) · `fire.js` (campfire) · `wall-art.js` (logo painting)
 
 The TV shows the QR code (with its caption) and nothing else until a question arrives. Then it pings, the TV jolts,
-it switches to static and types the question out, with a small QR in the corner. The ping needs one key press or click
+it switches to static and types the question out (no QR while a question is up). The QR is drawn amber-on-dark to match the TV. The ping needs one key press or click
 on the backdrop first (browsers block sound until then); pressing **F** for fullscreen is enough.
 The TV's glass is cracked in one corner and the cabinet is worn; a gold hoard glints under it, with a live clock on the chest. Partner logos (`public/partners.png`) sit bottom centre and fade out while zoomed into the TV.
 From /admin you can bring any question back with **Show again**.
 
-**Backdrop keys:** `1`–`9` theme · `F` fullscreen · `Q` camera zooms in/out of the TV (shows whatever is on it)
+**Backdrop keys:** `1`–`9` theme · `F` fullscreen · `Q` camera zooms in/out of the TV (shows whatever is on it) · `C` chromatic aberration on/off (remembered; eases off while zoomed into the TV) · `P` FPS meter
 
 **TV keys:** `→` next question (waiting ones first, then forward through those already shown) · `←` previous question · `↑` show the QR · `↓` back to automatic.
 After any arrow key the TV holds what you picked; new questions still ping and wait until you press `→` (or `↓` to let them play automatically).
 
 **Performance:** open the backdrop in Chrome/Edge with hardware acceleration on. Press **P** for an FPS meter.
-The scene renders at 1x pixel ratio with MSAA, merges static rock/TV/campfire parts into a few draw calls, draws the sun shadow once, and renders the water reflection at half resolution (blurred, so it stays soft).
-If frames still drop it steps down automatically: lower resolution, then no shadows, bloom or live reflection (the meter shows the step as q0 to q3).
+The scene renders at 1x pixel ratio with MSAA, merges static rock/TV/campfire parts into a few draw calls, draws the sun shadow once, and fakes the water's light (glints from the opening, fire and TV off the ripples) instead of rendering a mirror reflection.
+If frames still drop it steps down automatically: lower resolution, then no shadows or bloom (the meter shows the step as q0 to q3).

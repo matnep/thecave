@@ -26,9 +26,12 @@ export default {
     if (path === '/join') return Response.redirect(new URL('/form', url).toString(), 301);
 
     if (path === '/api/qr.svg') {
-      const target = `${(env.PUBLIC_URL || url.origin).replace(/\/$/, '')}/form`;
+      // Without PUBLIC_URL (local dev) point at whatever address the backdrop was opened on. Read the Host
+      // header: wrangler dev rewrites request.url to the configured route's domain.
+      const origin = env.PUBLIC_URL || `${url.protocol}//${request.headers.get('host') || url.host}`;
+      const target = `${origin.replace(/\/$/, '')}/form`;
       const svg = await QRCode.toString(target, { type: 'svg', margin: 1, color: { dark: '#120c08', light: '#f4e6cf' } });
-      return new Response(svg, { headers: { 'content-type': 'image/svg+xml', 'cache-control': 'no-cache' } });
+      return new Response(svg, { headers: { 'content-type': 'image/svg+xml', 'cache-control': 'no-cache', 'x-qr-target': target } });
     }
 
     if (path === '/api/public' && request.method === 'GET') return json(await room.publicInfo());

@@ -7,7 +7,6 @@
 // Ambient life (ducks, a passing pirate ship, jumping fish) comes from ./cave-life.js.
 import * as THREE from 'three';
 import { SimplexNoise } from 'three/addons/math/SimplexNoise.js';
-import { Reflector } from 'three/addons/objects/Reflector.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
@@ -315,9 +314,9 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
     scene.add(floor);
   }
 
-  // ---- water: stylised and calm. Soft blurred reflection, smooth flowing ripples, lighter shallows
-  // near the banks and a foam line where it meets rock. Shallows/foam come from a depth map baked
-  // from the same terrain function (groundY) the floor is built from.
+  // ---- water: low-poly like the rocks. The surface is cut into flat triangles that tilt with slow waves;
+  // each takes one warm cave colour, and triangles turned toward the opening, the fire or the TV flare in that
+  // light's colour. No mirror pass. Shallows and the shoreline come from a depth map baked from groundY.
   const WATER = { x0: -25, z0: -44, w: 50, d: 64 };
   const depthTex = (() => {
     const W = 256, H = 328, data = new Uint8Array(W * H * 4);
@@ -331,60 +330,85 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
     t.needsUpdate = true;
     return t;
   })();
-  const WaterShader = {
+  const waterMat = new THREE.ShaderMaterial({
     uniforms: {
-      color: { value: null }, tDiffuse: { value: null }, textureMatrix: { value: null },
       uDepth: { value: depthTex }, uTime: { value: 0 },
-      uDeep: { value: hex(0x1a130e) }, uShallow: { value: hex(0x4a3828) }, uFoam: { value: hex(0xb89a74) },
-      uFog: { value: hex(FOG) }, uFogD: { value: .034 },
       uArea: { value: new THREE.Vector4(WATER.x0, WATER.z0, WATER.w, WATER.d) },
+      // hues picked to sit with the firelit rock (rendered rock measures ~18° hue, ~.75 saturation)
+      uDeep: { value: hex(0x2a1006) }, uShallow: { value: hex(0x5c2a12) }, uFoam: { value: hex(0xa65a36) },
+      uHaze: { value: hex(0x7a3a1c) }, uFog: { value: hex(FOG) }, uFogD: { value: .034 },
+      // lights the water "reflects": position + colour (filled in once the fire and TV exist)
+      uMouthPos: { value: new THREE.Vector3(MOUTH.x, 3.2, MOUTH.z - 8) }, uMouthCol: { value: new THREE.Color(1.0, .5, .2) },
+      uFirePos: { value: new THREE.Vector3() }, uFireCol: { value: new THREE.Color(1, .38, .08).multiplyScalar(1.4) },
+      uTvPos: { value: new THREE.Vector3() }, uTvCol: { value: new THREE.Color(1, .5, .16).multiplyScalar(.8) },
+      uFire: { value: 1 },
     },
     vertexShader: `
-      uniform mat4 textureMatrix; varying vec4 vUv; varying vec3 vWorld;
+      varying vec3 vWorld;
       void main() {
-        vUv = textureMatrix * vec4(position, 1.0);
         vWorld = (modelMatrix * vec4(position, 1.0)).xyz;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        gl_Position = projectionMatrix * viewMatrix * vec4(vWorld, 1.0);
       }`,
     fragmentShader: `
-      uniform sampler2D tDiffuse, uDepth; uniform float uTime, uFogD; uniform vec3 uDeep, uShallow, uFoam, uFog; uniform vec4 uArea;
-      varying vec4 vUv; varying vec3 vWorld;
+      uniform sampler2D uDepth; uniform vec4 uArea; uniform float uTime, uFogD, uFire;
+      uniform vec3 uDeep, uShallow, uFoam, uHaze, uFog;
+      uniform vec3 uMouthPos, uMouthCol, uFirePos, uFireCol, uTvPos, uTvCol;
+      varying vec3 vWorld;
       float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7))) * 43758.5453); }
       float vnoise(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.-2.*f);
         return mix(mix(hash(i),hash(i+vec2(1,0)),f.x), mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),f.x), f.y); }
-      vec3 reflAt(vec4 uv){ return texture2DProj(tDiffuse, uv).rgb; }
+      // directional wave: (height, d/dx, d/dz)
+      vec3 wave(vec2 p, vec2 dir, float freq, float speed, float amp, float warp) {
+        float ph = dot(p, dir) * freq - uTime * speed + warp;
+        return vec3(amp * sin(ph), amp * freq * cos(ph) * dir);
+      }
+      vec3 waves(vec2 p, float warp) {
+        return wave(p, normalize(vec2(.35, 1.)), 2.4, 1.0, .05, warp)
+             + wave(p, normalize(vec2(-.7, .8)), 3.1, .8, .035, warp * .7)
+             + wave(p, normalize(vec2(.9, .45)), 5.3, 1.6, .018, warp * .4);
+      }
+      // how strongly a facet (reflection R) points at a light
+      float toward(vec3 R, vec3 from, vec3 lightPos, float sharp) {
+        return pow(max(dot(R, normalize(lightPos - from)), 0.), sharp);
+      }
       void main() {
         vec2 w = vWorld.xz;
         float t = uTime;
         float depth = texture2D(uDepth, (w - uArea.xy) / uArea.zw).r;   // 0 shore .. 1 deep
         float deep = smoothstep(.0, .45, depth);
 
-        // smooth, slow ripples drifting downstream (toward the camera), gently warped so they never look like a grid
-        float warp = vnoise(w * .45 + vec2(0., -t * .08)) * 2.2;
-        float r1 = sin(dot(w, vec2(.8, 2.3)) - t * .9 + warp);
-        float r2 = sin(dot(w, vec2(-1.5, 1.7)) - t * .7 + warp * .7);
-        float r3 = sin(dot(w, vec2(2.7, 3.9)) - t * 1.4 + warp * .5);
-        vec2 ripple = vec2(r1 * .6 + r2 * .4, r2 * .5 + r3 * .25);
+        // low-poly facets, like the rocks: snap to a triangle grid (stretched along the flow) and shade
+        // each triangle with one flat colour, using the waves at its centre
+        vec2 S = vec2(.42, .62);
+        vec2 g = w / S, i = floor(g), f = fract(g);
+        bool upper = f.x < f.y;
+        vec2 cen = (i + (upper ? vec2(1. / 3., 2. / 3.) : vec2(2. / 3., 1. / 3.))) * S;
+        float id = hash(i + (upper ? vec2(.5) : vec2(0.)));
+        float warp = vnoise(cen * .4 + vec2(0., -t * .07)) * 2.4;
+        vec3 h = waves(cen, warp);
+        float calm = (.35 + .65 * deep) * 1.4;
+        vec3 N = normalize(vec3(-h.y * calm, 1., -h.z * calm));
+        vec3 P = vec3(cen.x, 0., cen.y);
+        vec3 V = normalize(cameraPosition - P);
+        vec3 R = reflect(-V, N);
 
-        // soft reflection: distorted lookup, blurred with a small cross of taps (painterly, never blocky)
-        vec4 uv = vUv;
-        uv.xy += ripple * .009 * uv.w * (.35 + .65 * deep);
-        vec4 o = vec4(.0035 * uv.w, 0., 0., 0.);
-        vec3 refl = reflAt(uv) * .36 + (reflAt(uv + o) + reflAt(uv - o) + reflAt(uv + o.yxzw) + reflAt(uv - o.yxzw)) * .16;
+        // flat painted facet: wet browns from the cave palette, a touch lighter where it tilts to the light
+        vec3 base = mix(uShallow, uDeep, deep);
+        float lit = smoothstep(.975, 1., dot(N, normalize(vec3(-.25, 1., .45))));
+        vec3 col = base * (.86 + .22 * lit) * (.95 + id * .1);
 
-        vec3 V = normalize(cameraPosition - vWorld);
-        float fres = .18 + .72 * pow(1. - max(V.y, 0.), 4.);
-        vec3 body = mix(uShallow, uDeep, deep);
-        vec3 col = mix(body, refl, fres * (.5 + .5 * deep));
+        // facets turned toward a light flare in that light's colour (whole triangles, like sparkles)
+        // sharp exponents: only a scattering of triangles catch the light at any moment
+        float m = toward(R, P, uMouthPos, 110.);
+        float fi = toward(R, P, uFirePos, 70.) * smoothstep(9., 1.5, length(uFirePos.xz - cen));
+        float tv = toward(R, P, uTvPos, 90.) * smoothstep(7., 1., length(uTvPos.xz - cen));
+        col += uMouthCol * m * .22 + uFireCol * fi * .3 * uFire + uTvCol * tv * .22;
 
-        // light catching the ripple crests
-        float crest = pow(max(0., r1 * .6 + r2 * .4), 8.);
-        col += crest * .07 * vec3(1., .82, .58) * deep;
-        // long, faint painted flow streaks
-        float streak = smoothstep(.66, .92, vnoise(vec2(w.x * 2.2, w.y * .3 - t * .22)));
-        col = mix(col, col * 1.2 + vec3(.018, .013, .008), streak * .3 * deep);
+        // far water melts into the warm haze
+        float far = smoothstep(4., 26., length(vWorld - cameraPosition));
+        col = mix(col, uHaze * .45, far * .25);
 
-        // shoreline: a soft foam band that laps in and out
+        // shoreline: a faint band that laps in and out
         float lap = sin(t * .9 + w.x * 1.1 + w.y * .7) * .025;
         float breakup = vnoise(w * 3.2 + vec2(0., t * .25));
         float foam = smoothstep(.05, .0, depth + lap * .6 + (breakup - .5) * .05);
@@ -397,18 +421,9 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
         #include <tonemapping_fragment>
         #include <colorspace_fragment>
       }`,
-  };
-  const water = new Reflector(new THREE.PlaneGeometry(WATER.w, WATER.d), {
-    shader: WaterShader, clipBias: .003, multisample: 0,
-    textureWidth: Math.round(innerWidth * .5), textureHeight: Math.round(innerHeight * .5),
   });
+  const water = new THREE.Mesh(new THREE.PlaneGeometry(WATER.w, WATER.d, 1, 1), waterMat);
   water.rotation.x = -Math.PI / 2;
-  // the tier-3 fallback can switch the live reflection off (it keeps the last one)
-  {
-    const reflect = water.onBeforeRender.bind(water);
-    water.userData.reflect = true;
-    water.onBeforeRender = (...args) => { if (water.userData.reflect) reflect(...args); };
-  }
   water.position.set(0, 0, -12);
   scene.add(water);
 
@@ -557,7 +572,14 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
     face.castShadow = false;           // it bobs; the sun's shadow map is static
     logo.add(face);
     // thickness: a stack of dark copies behind the face reads as a cut-out sign
-    const edge = new THREE.MeshStandardMaterial({ color: 0x1c120c, alphaMap: tex, alphaTest: .5, roughness: .8 });
+    // the thickness layers use the logo block only; with the full canvas they'd double the small text like a shadow
+    const blockOnly = document.createElement('canvas');
+    blockOnly.width = canvas.width; blockOnly.height = canvas.height;
+    const bx = blockOnly.getContext('2d');
+    bx.drawImage(canvas, 0, 0);
+    bx.clearRect(0, 0, canvas.width, Math.round(1400 * .02 + 1400 * .07) - 2);   // the "AI BUILDER SCHOOL" strip
+    const edgeTex = new THREE.CanvasTexture(blockOnly);
+    const edge = new THREE.MeshStandardMaterial({ color: 0x1c120c, alphaMap: edgeTex, alphaTest: .5, roughness: .8 });
     for (let i = 1; i <= 3; i++) {          // 3 layers read as thickness at this distance (was 8)
       const m = new THREE.Mesh(geo, edge);
       m.position.z = -i * .04;
@@ -611,6 +633,7 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
   const FIRE_AT = new THREE.Vector3(-2.6, 0, 5.6);   // in front of, and clear of, the left rock cluster
   FIRE_AT.y = groundY(FIRE_AT.x, FIRE_AT.z) + .02;
   const fire = makeFire(scene, FIRE_AT, stoneGeo, rockMat, simplex);
+  waterMat.uniforms.uFirePos.value.copy(FIRE_AT).add(new THREE.Vector3(0, 1.1, 0));
 
   const { tv, screen, screenMat, tvLight, led } = makeTV(screenTex);
 
@@ -642,6 +665,7 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
   scene.updateMatrixWorld(true);
   const screenWorld = screen.getWorldPosition(new THREE.Vector3());
   const screenNormal = new THREE.Vector3(0, 0, 1).applyQuaternion(screen.getWorldQuaternion(new THREE.Quaternion()));
+  waterMat.uniforms.uTvPos.value.copy(screenWorld);
   const FOCUS = { look: screenWorld.clone(), pos: screenWorld.clone().addScaledVector(screenNormal, 1.95).add(new THREE.Vector3(0, .04, 0)) };
 
   flushRocks();
@@ -673,13 +697,20 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
   const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), .45, .6, .9);
   composer.addPass(bloom);
   const grade = new ShaderPass({
-    uniforms: { tDiffuse: { value: null }, uTime: { value: 0 } },
+    uniforms: { tDiffuse: { value: null }, uTime: { value: 0 }, uChroma: { value: 0 } },
     vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.); }`,
     fragmentShader: `
-      varying vec2 vUv; uniform sampler2D tDiffuse; uniform float uTime;
+      varying vec2 vUv; uniform sampler2D tDiffuse; uniform float uTime, uChroma;
       float hash(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }
       void main(){
         vec4 c = texture2D(tDiffuse, vUv);
+        // chromatic aberration: red and blue pulled apart, growing toward the edges like a cheap old lens
+        if (uChroma > .001) {
+          vec2 dir = vUv - .5;
+          vec2 off = dir * dot(dir, dir) * .045 * uChroma;
+          c.r = texture2D(tDiffuse, vUv + off).r;
+          c.b = texture2D(tDiffuse, vUv - off).b;
+        }
         float g = hash(vUv * 1000. + fract(uTime) * 311.) - .5;
         c.rgb += g * .035 * (.4 + c.rgb);
         float v = smoothstep(1.05, .35, length((vUv - .5) * vec2(1.1, 1.)));
@@ -704,6 +735,7 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
   let focus = 0;           // 0 = wide shot, 1 = close on the TV
   // static burst when the TV changes: ramps up, content swaps at the peak (TVScreen waits 140 ms), then fades
   let staticAge = 9, staticPeak = 0;
+  let chroma = 0, chromaWant = 0;      // chromatic aberration, eased in/out
   const staticEnv = () => staticAge < .14 ? staticAge / .14 : Math.max(0, 1 - (staticAge - .14) / .38);
   // camera zoom: an eased tween of fixed length rather than a chase
   let zoomFrom = 0, zoomTo = 0, zoomAge = 9;
@@ -719,6 +751,8 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
 
     // new question: the TV jolts and its light flares
     onQuestion() { shake = 1; },
+
+    setChromatic(on) { chromaWant = on ? 1 : 0; },
 
     setPresenter(p) {
       const key = p ? `${p.name}|${p.title || ''}` : null;
@@ -736,7 +770,8 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
       fire.update(t, dt, ig, camera);
       for (const r of rays) r.material.uniforms.uTime.value = t;
       dustMat.uniforms.uTime.value = t;
-      water.material.uniforms.uTime.value = t;
+      waterMat.uniforms.uTime.value = t;
+      waterMat.uniforms.uFire.value = fire.light.intensity / 34;   // glints flicker with the fire
       life.update(t, dt);
 
       // the sign drifts
@@ -777,17 +812,18 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
       camera.lookAt(look);
 
       grade.uniforms.uTime.value = t;
+      chroma += (chromaWant - chroma) * Math.min(1, dt * 5);
+      grade.uniforms.uChroma.value = chroma * (1 - focus * .9);   // eases off while zoomed in, so it never splits the QR
       composer.render(dt);
     },
 
     // quality tier 3 = the laptop is struggling: drop the expensive bits
-    degrade() { sun.castShadow = false; bloom.enabled = false; water.userData.reflect = false; },
+    degrade() { sun.castShadow = false; bloom.enabled = false; },
 
     resize() {
       frameCamera();
       composer.setPixelRatio(renderer.getPixelRatio());
       composer.setSize(innerWidth, innerHeight);
-      water.getRenderTarget().setSize(Math.round(innerWidth * .5), Math.round(innerHeight * .5));
     },
 
     dispose() {
@@ -799,7 +835,6 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
         }
       });
       scene.traverse((o) => { if (o.isLight) o.dispose(); });   // frees shadow maps
-      water.getRenderTarget().dispose();
       depthTex.dispose();
       for (const p of composer.passes) p.dispose?.();          // bloom keeps its own render targets
       composer.dispose();
