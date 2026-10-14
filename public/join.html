@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<meta name="theme-color" content="#120b07">
+<title>The Cave — ask a question</title>
+<link rel="stylesheet" href="/vendor/@fontsource/anton/400.css">
+<link rel="stylesheet" href="/vendor/@fontsource/vt323/400.css">
+<link rel="stylesheet" href="/vendor/@fontsource/ibm-plex-mono/400.css">
+<style>
+  :root { --cream: #ece2cc; --amber: #ffb238; --ochre: #a83a1a; --rock: #1a120d; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    min-height: 100dvh; color: var(--cream); font-family: 'IBM Plex Mono', monospace;
+    background:
+      radial-gradient(120% 60% at 50% 115%, rgba(255,110,30,.30), transparent 60%),
+      var(--rock);
+    padding: 9vh 24px 36px; display: flex; flex-direction: column; align-items: center; overflow-x: hidden;
+  }
+  /* faint rock grain */
+  body::before {
+    content: ''; position: fixed; inset: 0; pointer-events: none; opacity: .22; mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+  main { width: 100%; max-width: 420px; position: relative; }
+
+  .brand { font: 15px/1.05 Anton, sans-serif; letter-spacing: .02em; }
+  .brand b { color: #de5428; font-weight: 400; }
+  .logo { display: flex; align-items: flex-end; gap: 6px; margin-top: 8px; }
+  .logo .the { writing-mode: vertical-rl; transform: rotate(180deg); font: 30px/1 Anton, sans-serif; }
+  .logo .cave { font: 96px/.8 Anton, sans-serif; letter-spacing: .01em; }
+  .tag { margin-top: 10px; font: 13px Anton, sans-serif; letter-spacing: .32em; opacity: .7; }
+
+  .crt {
+    margin-top: 30px; padding: 14px 16px; border-radius: 10px; background: #0b0704;
+    border: 2px solid #8f3a17; box-shadow: inset 0 0 26px rgba(0,0,0,.9), 0 0 0 6px #2a1a12;
+    font: 22px/1.15 VT323, monospace; color: var(--amber); text-shadow: 0 0 8px rgba(255,140,30,.6);
+  }
+  .crt .blink { animation: b 1.06s steps(1) infinite; } @keyframes b { 50% { opacity: 0 } }
+
+  form { margin-top: 22px; display: flex; flex-direction: column; gap: 12px; }
+  label { font-size: 11px; letter-spacing: .18em; text-transform: uppercase; opacity: .6; }
+  input, textarea {
+    width: 100%; padding: 13px 14px; border-radius: 4px; font: 16px 'IBM Plex Mono', monospace; color: var(--cream);
+    background: rgba(236,226,204,.05); border: 1px solid rgba(236,226,204,.18); outline: none; margin-top: 6px;
+  }
+  input:focus, textarea:focus { border-color: var(--amber); background: rgba(255,178,56,.06); }
+  textarea { resize: none; height: 128px; }
+  .meta { display: flex; justify-content: space-between; font-size: 11px; opacity: .5; }
+  button {
+    margin-top: 6px; padding: 16px; border: 0; border-radius: 4px; cursor: pointer;
+    font: 20px Anton, sans-serif; letter-spacing: .12em; color: #170d07; background: var(--amber);
+    box-shadow: 0 0 0 1px #ffcf7a inset, 0 10px 30px rgba(255,130,40,.25);
+  }
+  button:active { transform: translateY(1px); }
+  button:disabled { opacity: .45; }
+  #note { min-height: 1.5em; font: 22px VT323, monospace; text-align: center; margin-top: 4px; }
+  #note.ok { color: var(--amber); text-shadow: 0 0 8px rgba(255,140,30,.6); }
+  #note.err { color: #ff7a63; }
+</style>
+</head>
+<body>
+<main>
+  <div class="brand">AI<b>*</b><br>BUILDER<br>SCHOOL</div>
+  <div class="logo"><span class="the">THE</span><span class="cave">CAVE</span></div>
+  <div class="tag">OLD WALLS. NEW IDEAS.</div>
+
+  <div class="crt">&gt; GOT A QUESTION?<br>&gt; IT GOES STRAIGHT TO THE TV<span class="blink">_</span></div>
+
+  <form id="f">
+    <label>Your name <span style="opacity:.6">(optional)</span><input id="name" maxlength="24" autocomplete="nickname"></label>
+    <label>Your question<textarea id="text" maxlength="140" required></textarea></label>
+    <div class="meta"><span>Keep it kind. It's on the big screen.</span><span id="left">140</span></div>
+    <button id="btn">SEND TO THE TV</button>
+    <div id="note"></div>
+  </form>
+</main>
+<script>
+  const $ = (id) => document.getElementById(id);
+  $('name').value = localStorage.getItem('cave-name') || '';
+  $('text').addEventListener('input', () => ($('left').textContent = 140 - $('text').value.length));
+
+  $('f').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const text = $('text').value.trim();
+    if (!text) return;
+    const name = $('name').value.trim();
+    localStorage.setItem('cave-name', name);
+    $('btn').disabled = true;
+    $('note').className = ''; $('note').textContent = '';
+    try {
+      const r = await fetch('/api/message', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, text }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || 'Something went wrong.');
+      $('note').className = 'ok';
+      $('note').textContent = d.moderated ? '> RECEIVED. WAITING FOR APPROVAL.' : '> SENT. WATCH THE TV.';
+      $('text').value = ''; $('left').textContent = 140;
+      if (navigator.vibrate) navigator.vibrate(30);
+    } catch (err) {
+      $('note').className = 'err'; $('note').textContent = err.message;
+    } finally {
+      setTimeout(() => ($('btn').disabled = false), 2500);
+    }
+  });
+</script>
+</body>
+</html>

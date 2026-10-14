@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Cave</title>
+<link rel="stylesheet" href="/vendor/@fontsource/anton/400.css">
+<link rel="stylesheet" href="/vendor/@fontsource/vt323/400.css">
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #000; }
+  canvas { display: block; }
+  body.idle { cursor: none; }
+  /* the scene fades up from black like the fire is being lit */
+  #fade { position: fixed; inset: 0; background: #000; pointer-events: none; transition: opacity 2.5s ease; }
+  body.ready #fade { opacity: 0; }
+  body.ready #fade.on { opacity: 1; transition-duration: .8s; }   /* theme switch */
+  #toast { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); padding: 8px 16px; border-radius: 6px;
+           background: rgba(0,0,0,.6); color: #f1e2c8; font: 16px VT323, monospace; letter-spacing: .08em; opacity: 0; transition: opacity .3s; }
+  #toast.show { opacity: 1; }
+  #status { position: fixed; left: 50%; top: 12px; transform: translateX(-50%); font: 14px monospace; color: #ff9a6b; opacity: 0; }
+  #status.show { opacity: .8; }
+  /* keep the font files loaded for the canvas painter */
+  .preload { position: absolute; opacity: 0; font: 1px Anton; } .preload + .preload { font-family: VT323; }
+</style>
+<script type="importmap">
+  { "imports": { "three": "/vendor/three/build/three.module.js", "three/addons/": "/vendor/three/examples/jsm/" } }
+</script>
+</head>
+<body>
+  <span class="preload">a</span><span class="preload">a</span>
+  <div id="fade"></div>
+  <div id="status">reconnecting…</div>
+  <div id="toast"></div>
+  <script type="module" src="/js/main.js"></script>
+  <script>
+    let idle;
+    addEventListener('mousemove', () => {
+      document.body.classList.remove('idle');
+      clearTimeout(idle);
+      idle = setTimeout(() => document.body.classList.add('idle'), 2500);
+    });
+  </script>
+</body>
+</html>

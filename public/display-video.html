@@ -1,0 +1,316 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Cave</title>
+<style>
+  /*
+    Everything sits on a fixed 1920x1080 "stage" that is scaled to fit the screen,
+    so the live TV overlay always lines up with the TV in the video.
+  */
+  :root {
+    --cream: #f1e9d6;
+    --orange: #e8572a;
+    --glass: #1b1916;
+    /* TV glass position inside the 1080p video — nudge these if the overlay drifts */
+    --tv-x: 1176px; --tv-y: 368px; --tv-w: 444px; --tv-h: 330px; --tv-r: 20px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
+  body.idle { cursor: none; }
+
+  #stage {
+    position: absolute; left: 50%; top: 50%; width: 1920px; height: 1080px;
+    transform-origin: 0 0; overflow: hidden;
+  }
+  #bg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  #bg.b { opacity: 0; }
+
+  /* ---------- the live TV ---------- */
+  #tv {
+    position: absolute; left: var(--tv-x); top: var(--tv-y); width: var(--tv-w); height: var(--tv-h);
+    border-radius: var(--tv-r); overflow: hidden; background: var(--glass);
+    font-family: 'Arial Narrow', 'Helvetica Neue', Arial, sans-serif; color: var(--cream);
+    box-shadow: inset 0 0 40px rgba(0,0,0,.85), inset 0 0 6px rgba(0,0,0,.9);
+  }
+  #tv::after { /* scanlines + glass glare */
+    content: ''; position: absolute; inset: 0; pointer-events: none; z-index: 5;
+    background:
+      repeating-linear-gradient(0deg, rgba(255,255,255,.025) 0 1px, transparent 1px 3px),
+      radial-gradient(ellipse 80% 60% at 30% 20%, rgba(255,255,255,.06), transparent 60%),
+      radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,.55) 100%);
+    animation: flick 4s infinite steps(1);
+  }
+  @keyframes flick { 0%, 100% { opacity: 1 } 47% { opacity: .85 } 48% { opacity: 1 } }
+
+  .chrome { position: absolute; inset: 0; padding: 22px 26px 18px; display: flex; flex-direction: column; }
+  .hdr { display: flex; align-items: center; gap: 8px; font: 700 11px Arial, sans-serif; letter-spacing: .12em;
+         text-transform: uppercase; padding-bottom: 10px; border-bottom: 1px solid rgba(241,233,214,.18); }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--orange); box-shadow: 0 0 8px var(--orange); }
+  .live .dot { animation: pulse 1s infinite; }
+  @keyframes pulse { 50% { opacity: .25 } }
+  .body { flex: 1; position: relative; }
+  .ftr { display: flex; align-items: flex-end; justify-content: space-between; font: 13px Arial, sans-serif; opacity: .9; }
+  .bars { display: flex; gap: 4px; margin-top: 6px; }
+  .bars i { width: 16px; height: 2px; background: rgba(241,233,214,.25); }
+  .bars i.on { background: var(--orange); }
+  .eq { display: flex; gap: 2px; align-items: flex-end; height: 14px; }
+  .eq i { width: 3px; background: var(--orange); animation: eq 1s infinite ease-in-out; }
+  .eq i:nth-child(2) { animation-delay: -.3s } .eq i:nth-child(3) { animation-delay: -.6s } .eq i:nth-child(4) { animation-delay: -.15s }
+  @keyframes eq { 0%, 100% { height: 30% } 50% { height: 100% } }
+
+  /* slides (inside .body) */
+  .slide { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center;
+           opacity: 0; transform: translateY(8px); transition: opacity .5s, transform .5s; }
+  .slide.on { opacity: 1; transform: none; }
+  .slide h2 { font: 700 34px/1.08 Arial, sans-serif; letter-spacing: .01em; text-transform: uppercase; }
+  .slide p { margin-top: 10px; font: 14px Arial, sans-serif; opacity: .65; }
+
+  .slide.qr { flex-direction: row; align-items: center; gap: 18px; justify-content: flex-start; }
+  .slide.qr img { width: 150px; height: 150px; border-radius: 6px; flex: none; }
+  .slide.qr h2 { font-size: 30px; }
+
+  .slide.q { justify-content: center; }
+  .slide.q .kicker { font: 700 11px Arial, sans-serif; letter-spacing: .14em; color: var(--orange); text-transform: uppercase; margin-bottom: 8px; }
+  .slide.q h2 { text-transform: none; font-size: 28px; line-height: 1.15; }
+  .slide.q h2.s { font-size: 22px; } .slide.q h2.xs { font-size: 18px; }
+  .slide.q .who { margin-top: 10px; font: 13px Arial, sans-serif; opacity: .6; text-transform: uppercase; letter-spacing: .12em; }
+
+  /* static burst between slides */
+  #static { position: absolute; inset: 0; z-index: 4; width: 100%; height: 100%; opacity: 0; pointer-events: none; }
+
+  /* small corner QR on the stage, shown when the TV is busy with questions */
+  #mini {
+    position: absolute; right: 36px; bottom: 32px; padding: 10px 10px 8px; border-radius: 12px; text-align: center;
+    background: rgba(18,12,9,.82); border: 1px solid rgba(232,87,42,.4); color: var(--cream);
+    font: 700 13px Arial, sans-serif; letter-spacing: .1em; text-transform: uppercase;
+    opacity: 0; transform: translateY(14px); transition: opacity .5s, transform .5s;
+  }
+  #mini.on { opacity: 1; transform: none; }
+  #mini img { width: 150px; display: block; border-radius: 6px; margin-bottom: 6px; }
+
+  /* full-screen QR (press Q) */
+  #bigqr {
+    position: absolute; inset: 0; display: grid; place-items: center; background: rgba(8,5,3,.82);
+    opacity: 0; pointer-events: none; transition: opacity .5s; color: var(--cream); text-align: center;
+    font-family: Arial, sans-serif;
+  }
+  #bigqr.on { opacity: 1; }
+  #bigqr img { width: 560px; border-radius: 18px; box-shadow: 0 0 80px rgba(232,87,42,.35); }
+  #bigqr h2 { font-size: 64px; text-transform: uppercase; margin-bottom: 26px; letter-spacing: .02em; }
+  #bigqr p { margin-top: 22px; font-size: 26px; opacity: .7; }
+
+  #status { position: absolute; left: 50%; top: 14px; transform: translateX(-50%); font: 14px monospace; color: #ff9a6b; opacity: 0; }
+  #status.show { opacity: .85; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <!-- two copies of the video crossfade at the loop point so the fire never "jumps" -->
+  <video id="bg" class="a" src="/media/cave.mp4" muted playsinline autoplay preload="auto"></video>
+  <video id="bg2" class="b" src="/media/cave.mp4" muted playsinline preload="auto"
+         style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:0"></video>
+
+  <div id="tv">
+    <canvas id="static" width="222" height="165"></canvas>
+    <div class="chrome">
+      <div class="hdr"><span class="dot"></span><span id="hdrText">The Cave / On Air</span></div>
+      <div class="body" id="slides"></div>
+      <div class="ftr">
+        <div><div>aibuilderschool.com</div><div class="bars" id="bars"></div></div>
+        <div class="eq"><i></i><i></i><i></i><i></i></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="mini"><img src="/api/qr.svg" alt=""><div>Ask a question</div></div>
+
+  <div id="bigqr">
+    <div>
+      <h2>Got a question?</h2>
+      <img src="/api/qr.svg" alt="QR code">
+      <p id="bigUrl"></p>
+    </div>
+  </div>
+  <div id="status">reconnecting…</div>
+</div>
+
+<script>
+// ---------- fit the 1920x1080 stage to the window ----------
+const stage = document.getElementById('stage');
+function fit() {
+  const s = Math.min(innerWidth / 1920, innerHeight / 1080);
+  stage.style.transform = `scale(${s}) translate(-50%, -50%)`;
+}
+addEventListener('resize', fit); fit();
+
+// ---------- seamless video loop (crossfade two players) ----------
+const vids = [document.getElementById('bg'), document.getElementById('bg2')];
+let cur = 0;
+const FADE = 1.2;
+vids.forEach((v) => { v.style.transition = `opacity ${FADE}s linear`; });
+vids[0].style.opacity = 1;
+vids[0].play().catch(() => {});
+setInterval(() => {
+  const a = vids[cur], b = vids[1 - cur];
+  if (!a.duration || a.currentTime < a.duration - FADE - 0.1 || b.dataset.fading) return;
+  b.dataset.fading = '1';
+  b.currentTime = 0;
+  b.play().then(() => {
+    b.style.opacity = 1; a.style.opacity = 0;
+    setTimeout(() => { a.pause(); delete b.dataset.fading; cur = 1 - cur; }, FADE * 1000 + 100);
+  }).catch(() => delete b.dataset.fading);
+}, 100);
+
+// ---------- TV static ----------
+const sc = document.getElementById('static'), sx = sc.getContext('2d');
+const noise = sx.createImageData(sc.width, sc.height);
+let staticUntil = 0;
+function drawStatic(now) {
+  if (now < staticUntil) {
+    for (let i = 0; i < noise.data.length; i += 4) {
+      const v = Math.random() * 255 | 0;
+      noise.data[i] = noise.data[i + 1] = noise.data[i + 2] = v; noise.data[i + 3] = 255;
+    }
+    sx.putImageData(noise, 0, 0);
+    sc.style.opacity = Math.min(1, (staticUntil - now) / 150) * .9;
+  } else sc.style.opacity = 0;
+  requestAnimationFrame(drawStatic);
+}
+requestAnimationFrame(drawStatic);
+const burst = (ms = 350) => { staticUntil = performance.now() + ms; };
+
+// ---------- slides ----------
+const slidesEl = document.getElementById('slides');
+const hdrText = document.getElementById('hdrText');
+const tv = document.getElementById('tv');
+const mini = document.getElementById('mini');
+
+const ROTATION = [
+  { kind: 'text', title: 'Big ideas.<br>Real people.', sub: 'Stories from the people building it.' },
+  { kind: 'text', title: 'AI. Tech.<br>Malaysia.', sub: 'Old walls. New ideas.' },
+  { kind: 'qr', title: 'Got a<br>question?', sub: 'Scan to join the conversation.' },
+];
+const ROTATE_MS = 6500;
+const QUESTION_MS = 14000;
+
+let rotIndex = 0;
+let queue = [];
+let showing = null;     // question currently on the TV
+let timer = null;
+let total = 0;
+
+function bars(n, on) {
+  document.getElementById('bars').innerHTML = Array.from({ length: n }, (_, i) => `<i class="${i === on ? 'on' : ''}"></i>`).join('');
+}
+
+function render(el) {
+  const old = slidesEl.querySelector('.slide.on');
+  burst();
+  setTimeout(() => {
+    if (old) old.remove();
+    slidesEl.appendChild(el);
+    requestAnimationFrame(() => el.classList.add('on'));
+  }, 180);
+}
+
+function textSlide(s) {
+  const el = document.createElement('div');
+  el.className = 'slide' + (s.kind === 'qr' ? ' qr' : '');
+  const copy = `<div><h2>${s.title}</h2><p>${s.sub}</p></div>`;
+  el.innerHTML = s.kind === 'qr' ? `<img src="/api/qr.svg" alt="">${copy}` : copy;
+  return el;
+}
+
+function questionSlide(m) {
+  const el = document.createElement('div');
+  el.className = 'slide q';
+  const k = document.createElement('div'); k.className = 'kicker';
+  k.textContent = queue.length ? `Question · ${queue.length} more waiting` : 'Question from the cave';
+  const h = document.createElement('h2'); h.textContent = '“' + m.text + '”';
+  if (m.text.length > 70) h.className = 's';
+  if (m.text.length > 110) h.className = 'xs';
+  el.append(k, h);
+  if (m.name) { const w = document.createElement('div'); w.className = 'who'; w.textContent = '— ' + m.name; el.append(w); }
+  return el;
+}
+
+function next() {
+  clearTimeout(timer);
+  if (queue.length) {
+    showing = queue.shift();
+    tv.classList.add('live');
+    hdrText.textContent = 'The Cave / Live question';
+    mini.classList.add('on');
+    render(questionSlide(showing));
+    bars(0);
+    timer = setTimeout(next, QUESTION_MS);
+    return;
+  }
+  showing = null;
+  tv.classList.remove('live');
+  hdrText.textContent = 'The Cave / On Air';
+  const s = ROTATION[rotIndex];
+  mini.classList.toggle('on', s.kind !== 'qr');
+  render(textSlide(s));
+  bars(ROTATION.length, rotIndex);
+  rotIndex = (rotIndex + 1) % ROTATION.length;
+  timer = setTimeout(next, ROTATE_MS);
+}
+
+function enqueue(m, { front = false } = {}) {
+  if (front) queue.unshift(m); else queue.push(m);
+  if (!showing) next();   // interrupt the idle rotation straight away
+}
+
+// ---------- live connection ----------
+const bigqr = document.getElementById('bigqr');
+const status = document.getElementById('status');
+let started = false;
+function connect() {
+  const es = new EventSource('/api/stream');
+  es.addEventListener('init', (e) => {
+    const d = JSON.parse(e.data);
+    document.getElementById('bigUrl').textContent = d.joinUrl.replace(/^https?:\/\//, '');
+    total = d.messages.length;
+    bigqr.classList.toggle('on', !!d.qrVisible);
+    status.classList.remove('show');
+    if (!started) { started = true; next(); }
+  });
+  es.addEventListener('message', (e) => { total++; enqueue(JSON.parse(e.data)); });
+  es.addEventListener('spotlight', (e) => {
+    const m = JSON.parse(e.data);
+    queue = queue.filter((q) => q.id !== m.id);
+    queue.unshift(m); next();
+  });
+  es.addEventListener('remove', (e) => {
+    const id = JSON.parse(e.data).id;
+    queue = queue.filter((q) => q.id !== id);
+    if (showing && showing.id === id) next();
+  });
+  es.addEventListener('clear', () => { queue = []; if (showing) next(); });
+  es.addEventListener('qr', (e) => bigqr.classList.toggle('on', JSON.parse(e.data).on));
+  es.onerror = () => status.classList.add('show');
+}
+connect();
+
+// ---------- keyboard ----------
+//  F fullscreen · Q big QR · → / Space next slide · T toggle TV overlay (to check alignment)
+addEventListener('keydown', (e) => {
+  const k = e.key.toLowerCase();
+  if (k === 'f') document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
+  if (k === 'q') bigqr.classList.toggle('on');
+  if (k === 'arrowright' || k === ' ') next();
+  if (k === 't') tv.style.visibility = tv.style.visibility === 'hidden' ? '' : 'hidden';
+});
+
+let idleTimer;
+addEventListener('mousemove', () => {
+  document.body.classList.remove('idle');
+  clearTimeout(idleTimer);
+  idleTimer = setTimeout(() => document.body.classList.add('idle'), 2500);
+});
+</script>
+</body>
+</html>

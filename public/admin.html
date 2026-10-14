@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>The Cave — admin</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 24px 32px; font: 15px system-ui, sans-serif; background: #14100d; color: #eadbc8; }
+  h1 { font-weight: 500; letter-spacing: .1em; margin: 0 0 4px; }
+  .url { font-family: Consolas, monospace; opacity: .7; margin-bottom: 20px; }
+  .bar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 24px; }
+  button { font: inherit; padding: 8px 14px; border-radius: 8px; border: 1px solid #5a4030; background: #2a1f18; color: inherit; cursor: pointer; }
+  button:hover { background: #3a2a1f; }
+  button.ok { border-color: #5f8a4a; }
+  button.bad { border-color: #9a4a3a; }
+  label { display: flex; gap: 6px; align-items: center; cursor: pointer; }
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
+  h2 { font-size: 14px; text-transform: uppercase; letter-spacing: .15em; opacity: .6; font-weight: 500; }
+  .item { display: flex; gap: 12px; align-items: flex-start; padding: 10px 12px; border-radius: 8px; background: #1e1712; margin-bottom: 8px; }
+  .item .t { flex: 1; }
+  .item .n { font-size: 12px; opacity: .55; margin-top: 2px; }
+  .empty { opacity: .4; font-style: italic; }
+</style>
+</head>
+<body>
+  <h1>THE CAVE · admin</h1>
+  <div class="url">Audience link: <span id="url"></span> · Display: <a href="/" target="_blank" style="color:inherit">open backdrop</a></div>
+  <div class="bar">
+    <label><input type="checkbox" id="mod"> Moderation (approve before showing)</label>
+    <label><input type="checkbox" id="qr"> Zoom camera into the TV QR</label>
+    <button class="bad" id="clear">Clear all questions</button>
+  </div>
+  <div class="cols">
+    <section><h2>Pending (<span id="pc">0</span>)</h2><div id="pending"></div></section>
+    <section><h2>Questions (<span id="lc">0</span>)</h2><div id="live"></div></section>
+  </div>
+<script>
+  const $ = (id) => document.getElementById(id);
+  const post = (action, body = {}) => fetch('/api/admin/' + action, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  let S = { live: [], pending: [] };
+
+  function row(m, buttons) {
+    const el = document.createElement('div');
+    el.className = 'item';
+    const t = document.createElement('div'); t.className = 't'; t.textContent = m.text;
+    const n = document.createElement('div'); n.className = 'n';
+    n.textContent = (m.name || 'anonymous') + ' · ' + new Date(m.at).toLocaleTimeString();
+    t.appendChild(n); el.appendChild(t);
+    for (const [label, cls, fn] of buttons) {
+      const b = document.createElement('button'); b.textContent = label; b.className = cls; b.onclick = fn; el.appendChild(b);
+    }
+    return el;
+  }
+
+  function render() {
+    $('pc').textContent = S.pending.length; $('lc').textContent = S.live.length;
+    const p = $('pending'), l = $('live');
+    p.replaceChildren(...S.pending.map((m) => row(m, [['Approve', 'ok', () => post('approve', { id: m.id })], ['Reject', 'bad', () => post('reject', { id: m.id })]])));
+    l.replaceChildren(...S.live.slice().reverse().map((m) => row(m, [['Put on TV', 'ok', () => post('spotlight', { id: m.id })], ['Remove', 'bad', () => post('remove', { id: m.id })]])));
+    if (!S.pending.length) p.innerHTML = '<div class="empty">Nothing waiting.</div>';
+    if (!S.live.length) l.innerHTML = '<div class="empty">No questions yet.</div>';
+  }
+
+  const es = new EventSource('/api/admin/stream');
+  es.addEventListener('init', (e) => {
+    S = JSON.parse(e.data);
+    $('url').textContent = S.joinUrl; $('mod').checked = S.moderation; $('qr').checked = S.qrVisible;
+    render();
+  });
+  es.addEventListener('pending', (e) => { S.pending.push(JSON.parse(e.data)); render(); });
+  es.addEventListener('message', (e) => { S.live.push(JSON.parse(e.data)); render(); });
+
+  $('mod').onchange = (e) => post('moderation', { on: e.target.checked });
+  $('qr').onchange = (e) => post('qr', { on: e.target.checked });
+  $('clear').onclick = () => confirm('Clear every question?') && post('clear');
+</script>
+</body>
+</html>
