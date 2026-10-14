@@ -1,16 +1,16 @@
 // What's on the TV. Draws onto a 1024x768 canvas that the 3D scene uses as the CRT texture.
 // Owns the running order: idle slides → QR → … and interrupts with audience questions.
+// The slides, footer and the presenter on stage come from the admin page (setConfig).
 
 const W = 1024, H = 768;
 const AMBER = '#ffb238';
 const AMBER_DIM = 'rgba(255,178,56,.55)';
 const MX = 78, TOP = 66, BOTTOM = 704;   // safe area inside the curved glass
 
-const SLIDES = [
-  { kind: 'text', lines: ['BIG IDEAS.', 'REAL PEOPLE.'], sub: 'stories from the people building it', ms: 7000 },
-  { kind: 'qr', ms: 11000 },
-  { kind: 'text', lines: ['AI. TECH.', 'MALAYSIA.'], sub: 'old walls. new ideas.', ms: 7000 },
-  { kind: 'qr', ms: 11000 },
+// used until the server sends the real config
+const FALLBACK_SLIDES = [
+  { kind: 'text', lines: ['BIG IDEAS.', 'REAL PEOPLE.'], sub: 'stories from the people building it', secs: 7 },
+  { kind: 'qr', secs: 11 },
 ];
 const QUESTION_MS = 15000;
 const TYPE_CPS = 38;
@@ -27,6 +27,9 @@ export class TVScreen {
     this.queue = [];
     this.current = null;
     this.slideIndex = 0;
+    this.slides = FALLBACK_SLIDES;
+    this.presenter = null;
+    this.footer = 'AIBUILDERSCHOOL.COM';
     this.focus = false;
     this.timer = null;
     this.dirty = true;
@@ -45,10 +48,26 @@ export class TVScreen {
       this.timer = setTimeout(() => this.next(), QUESTION_MS + m.text.length * 25);
       return;
     }
-    const s = SLIDES[this.slideIndex];
-    this.slideIndex = (this.slideIndex + 1) % SLIDES.length;
+    // the "presenter" slide only shows while someone is on stage
+    let s;
+    for (let tries = 0; tries < this.slides.length; tries++) {
+      s = this.slides[this.slideIndex % this.slides.length];
+      this.slideIndex = (this.slideIndex + 1) % this.slides.length;
+      if (s.kind !== 'presenter' || this.presenter) break;
+      s = null;
+    }
+    s = s || { kind: 'qr', secs: 10 };
     this.show(s);
-    this.timer = setTimeout(() => this.next(), s.ms);
+    this.timer = setTimeout(() => this.next(), (s.secs || 7) * 1000);
+  }
+
+  setConfig({ slides, presenter, footer } = {}) {
+    if (Array.isArray(slides) && slides.length) this.slides = slides;
+    this.presenter = presenter || null;
+    if (typeof footer === 'string') this.footer = footer;
+    // redraw whatever is showing; a slide that no longer exists simply ends on its timer
+    if (this.current?.kind === 'presenter' && !this.presenter) this.next();
+    this.dirty = true;
   }
 
   show(item) {
@@ -104,6 +123,7 @@ export class TVScreen {
 
     if (!(cur.kind === 'qr' && cur.big)) this.chrome(cur, blink);
     if (cur.kind === 'text') this.textSlide(cur);
+    else if (cur.kind === 'presenter') this.presenterSlide();
     else if (cur.kind === 'qr') cur.big ? this.bigQr() : this.qrSlide(blink);
     else if (cur.kind === 'question') this.question(cur, now, blink);
     return true;
@@ -134,16 +154,37 @@ export class TVScreen {
     this.text(`${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}`, W - MX, TOP + 13, 40, AMBER_DIM, 'right');
     c.fillStyle = 'rgba(255,178,56,.25)';
     c.fillRect(MX, TOP + 34, W - MX * 2, 2);
-    this.text('AIBUILDERSCHOOL.COM', MX, BOTTOM, 36, AMBER_DIM);
+    this.text(this.footer.toUpperCase(), MX, BOTTOM, 36, AMBER_DIM);
     this.text('CH 03', W - MX, BOTTOM, 36, AMBER_DIM, 'right');
     this.glow(false);
   }
 
   textSlide(s) {
     this.glow(true);
-    let y = 300;
-    for (const line of s.lines) { this.text(line, MX - 4, y, 156); y += 132; }
-    this.text(s.sub.toUpperCase(), MX, y + 6, 40, AMBER_DIM);
+    const lines = s.lines || [];
+    const longest = lines.reduce((a, b) => (b.length > a.length ? b : a), '');
+    const size = this.fit(longest, W - MX * 2, lines.length > 2 ? 120 : 156, 60);
+    let y = (lines.length > 2 ? 250 : 300) - (156 - size) * .4;
+    for (const line of lines) { this.text(line, MX - 4, y, size); y += size * .85; }
+    if (s.sub) this.text(s.sub.toUpperCase(), MX, y + 6, this.fit(s.sub.toUpperCase(), W - MX * 2, 40, 24), AMBER_DIM);
+    this.glow(false);
+  }
+
+  presenterSlide() {
+    const p = this.presenter;
+    if (!p) return;
+    this.glow(true);
+    this.text('> ON STAGE NOW', MX, 200, 44, '#ff7a3a');
+    const name = p.name.toUpperCase();
+    const size = this.fit(name, W - MX * 2, 140, 56);
+    this.ctx.font = `${size}px VT323`;
+    const nameLines = this.wrap(name, W - MX * 2).slice(0, 2);
+    let y = 200 + size * .95;
+    for (const l of nameLines) { this.text(l, MX - 4, y, size); y += size * .85; }
+    if (p.title) {
+      this.ctx.font = '44px VT323';
+      for (const l of this.wrap(p.title.toUpperCase(), W - MX * 2).slice(0, 3)) { y += 46; this.text(l, MX, y, 44, AMBER_DIM); }
+    }
     this.glow(false);
   }
 
@@ -203,7 +244,9 @@ export class TVScreen {
     const qrSize = 150;
     const maxW = W - MX * 2 - qrSize - 40;
     this.glow(true);
-    this.text(cur.waiting ? `> INCOMING QUESTION  [+${cur.waiting} WAITING]` : '> INCOMING QUESTION', MX, 160, 40, '#ff7a3a');
+    const who = m.presenter ? `> QUESTION FOR ${m.presenter.toUpperCase()}` : '> INCOMING QUESTION';
+    const kicker = cur.waiting ? `${who}  [+${cur.waiting} WAITING]` : who;
+    this.text(kicker, MX, 160, this.fit(kicker, W - MX * 2, 40, 26), '#ff7a3a');
 
     // largest size where the whole question fits
     const full = `"${m.text}"`;

@@ -1,0 +1,34 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "the-cave",
+  // the account that owns the theaibuilder.school zone (custom domains must live in the same account)
+  "account_id": "32433a709a19f656ccb792c48ce70c9d",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-10-14",
+  "upload_source_maps": true,
+  "observability": { "enabled": true },
+
+  // Pages, scripts, logo and the copied three.js/fonts (npm run build) are plain static files.
+  // Only /api/* (and the old /join link) runs the Worker first.
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "html_handling": "auto-trailing-slash",
+    "run_worker_first": ["/api/*", "/join"]
+  },
+
+  // One room holds the questions, presenters, TV slides and the live connections.
+  "durable_objects": {
+    "bindings": [{ "name": "ROOM", "class_name": "Room" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Room"] }],
+
+  "vars": {
+    // Where the QR code points (plus /form). Leave empty to use whatever address the backdrop was opened on.
+    "PUBLIC_URL": "https://backdrop.theaibuilder.school"
+  }
+
+  , "routes": [{ "pattern": "backdrop.theaibuilder.school", "custom_domain": true }]
+
+  // Secret (never in this file):  npx wrangler secret put ADMIN_PASSWORD
+}

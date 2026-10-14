@@ -62,11 +62,10 @@
 </head>
 <body>
 <main>
-  <div class="brand">AI<b>*</b><br>BUILDER<br>SCHOOL</div>
+  <div class="brand">AI BUILDER SCHOOL</div>
   <div class="logo"><span class="the">THE</span><span class="cave">CAVE</span></div>
-  <div class="tag">OLD WALLS. NEW IDEAS.</div>
 
-  <div class="crt">&gt; GOT A QUESTION?<br>&gt; IT GOES STRAIGHT TO THE TV<span class="blink">_</span></div>
+  <div class="crt"><span id="who"></span>&gt; GOT A QUESTION?<br>&gt; IT GOES STRAIGHT TO THE TV<span class="blink">_</span></div>
 
   <form id="f">
     <label>Your name <span style="opacity:.6">(optional)</span><input id="name" maxlength="24" autocomplete="nickname"></label>
@@ -79,6 +78,14 @@
 <script>
   const $ = (id) => document.getElementById(id);
   $('name').value = localStorage.getItem('cave-name') || '';
+
+  // who's on stage right now (set from the admin page)
+  fetch('/api/public').then((r) => r.json()).then((d) => {
+    if (!d.presenter) return;
+    const who = $('who');
+    who.textContent = '> ON STAGE: ' + d.presenter.name.toUpperCase();
+    who.appendChild(document.createElement('br'));
+  }).catch(() => {});
   $('text').addEventListener('input', () => ($('left').textContent = 140 - $('text').value.length));
 
   $('f').addEventListener('submit', async (e) => {

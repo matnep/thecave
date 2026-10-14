@@ -100,24 +100,39 @@ await loadTheme(THEMES[fromUrl] ? fromUrl : Number(localStorage.getItem('cave-th
 requestAnimationFrame(frame);
 
 // ============================================================ live connection
+// WebSocket to the room; reconnects with backoff if the network blips.
 const status = document.getElementById('status');
-let started = false;
+let started = false, retry = 0;
 function connect() {
-  const es = new EventSource('/api/stream');
-  es.addEventListener('init', (ev) => {
-    const d = JSON.parse(ev.data);
+  const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/api/ws?role=display`);
+  let ping;
+  ws.onopen = () => {
+    retry = 0;
     status.classList.remove('show');
-    tvScreen.setFocus(!!d.qrVisible);
-    if (!started) { started = true; tvScreen.start(); }
-  });
-  es.addEventListener('message', (ev) => tvScreen.enqueue(JSON.parse(ev.data)));
-  es.addEventListener('spotlight', (ev) => tvScreen.spotlight(JSON.parse(ev.data)));
-  es.addEventListener('remove', (ev) => tvScreen.remove(JSON.parse(ev.data).id));
-  es.addEventListener('clear', () => tvScreen.clear());
-  es.addEventListener('qr', (ev) => tvScreen.setFocus(JSON.parse(ev.data).on));
-  es.onerror = () => status.classList.add('show');
+    ping = setInterval(() => ws.readyState === 1 && ws.send('ping'), 25000);
+  };
+  ws.onmessage = (ev) => {
+    if (ev.data === 'pong') return;
+    const msg = JSON.parse(ev.data);
+    if (msg.type === 'init' || msg.type === 'config') {
+      tvScreen.setConfig(msg.config);
+      tvScreen.setFocus(!!msg.config.focus);
+      if (!started) { started = true; tvScreen.start(); }
+    }
+    if (msg.type === 'message') tvScreen.enqueue(msg.q);
+    if (msg.type === 'spotlight') tvScreen.spotlight(msg.q);
+    if (msg.type === 'remove') tvScreen.remove(msg.id);
+    if (msg.type === 'clear') tvScreen.clear();
+  };
+  ws.onclose = () => {
+    clearInterval(ping);
+    status.classList.add('show');
+    setTimeout(connect, Math.min(10000, 500 * 2 ** retry++));
+  };
 }
 connect();
+// show the idle slides even if the server can't be reached yet
+setTimeout(() => { if (!started) { started = true; tvScreen.start(); } }, 4000);
 
 // ============================================================ keys
 addEventListener('keydown', (ev) => {
