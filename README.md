@@ -31,12 +31,12 @@ The local admin password is in `.dev.vars` (not committed).
 3. The Worker deploys into the account that owns theaibuilder.school (`account_id` in `wrangler.jsonc`), on the custom domain backdrop.theaibuilder.school
 4. `npm run deploy`
 
-`npm run build` copies three.js and the fonts from node_modules into `public/vendor` (deploy and dev do this automatically).
+`npm run build` copies three.js and the fonts from node_modules into `public/vendor` and builds the admin into `public/admin` (deploy and dev do this automatically; `npm run dev:admin` rebuilds the admin on save).
 
 ## Code
 - `src/worker.js`: routes, admin login (signed HttpOnly cookie), QR code
 - `src/room.js`: the Durable Object: SQLite storage, profanity hold, rate limit, live WebSockets
-- `public/index.html` + `public/js/`: the backdrop · `public/form.html` · `public/admin.html`
+- `public/index.html` + `public/js/`: the backdrop · `public/form.html` · `admin/`: the admin (React + shadcn/ui, built by Vite into `public/admin/` on `npm run build`)
 
 **The scene** is rendered live in Three.js. Nothing is a pre-rendered video.
 
@@ -54,7 +54,7 @@ Shared pieces: `public/js/main.js` (renderer, keys, WebSocket to the room, ping 
 The TV shows the QR code (with its caption) and nothing else until a question arrives. Then it pings, the TV jolts,
 it switches to static and types the question out (no QR while a question is up). The QR is drawn amber-on-dark to match the TV. The ping needs one key press or click
 on the backdrop first (browsers block sound until then); pressing **F** for fullscreen is enough.
-The TV's glass is cracked in one corner and the cabinet is worn; a gold hoard glints under it, with a live clock on the chest. Partner logos (`public/partners.png`) sit bottom centre and fade out while zoomed into the TV.
+The TV's glass is cracked in one corner and the cabinet is worn; a gold hoard glints under it, with a live clock on the chest. Partner logos (`public/partners.png`) take turns with the QR on the TV: the strip is split into one logo per partner wherever there is a wide transparent gap.
 From /admin you can bring any question back with **Show again**.
 
 **Backdrop keys:** `1`–`9` theme · `F` fullscreen · `Q` camera zooms in/out of the TV (shows whatever is on it) · `C` chromatic aberration on/off (remembered; eases off while zoomed into the TV) · `P` FPS meter

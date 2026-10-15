@@ -1,0 +1,1 @@
+{ "compilerOptions": { "baseUrl": ".", "paths": { "@/*": ["./admin/src/*"] } }, "include": ["admin/src"] }

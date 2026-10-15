@@ -1,0 +1,64 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* shadcn/ui tokens, tuned to the cave: warm stone surfaces, firelight amber as the primary */
+:root {
+  --radius: 0.65rem;
+  --background: oklch(0.17 0.012 50);
+  --foreground: oklch(0.93 0.025 75);
+  --card: oklch(0.205 0.014 50);
+  --card-foreground: oklch(0.93 0.025 75);
+  --popover: oklch(0.22 0.015 50);
+  --popover-foreground: oklch(0.93 0.025 75);
+  --primary: oklch(0.8 0.16 70);
+  --primary-foreground: oklch(0.2 0.04 50);
+  --secondary: oklch(0.27 0.016 50);
+  --secondary-foreground: oklch(0.93 0.025 75);
+  --muted: oklch(0.25 0.014 50);
+  --muted-foreground: oklch(0.7 0.03 70);
+  --accent: oklch(0.29 0.02 55);
+  --accent-foreground: oklch(0.95 0.025 75);
+  --destructive: oklch(0.64 0.19 30);
+  --border: oklch(1 0.02 70 / 0.1);
+  --input: oklch(1 0.02 70 / 0.14);
+  --ring: oklch(0.8 0.16 70 / 0.7);
+  --success: oklch(0.72 0.14 145);
+}
+
+@theme inline {
+  --font-display: "Anton", ui-sans-serif, sans-serif;
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-success: var(--success);
+}
+
+@layer base {
+  * { @apply border-border outline-ring/50; }
+  body {
+    @apply bg-background text-foreground antialiased;
+    background-image: radial-gradient(ellipse 80% 50% at 50% -10%, oklch(0.8 0.16 70 / 0.08), transparent 70%);
+    background-attachment: fixed;
+  }
+}

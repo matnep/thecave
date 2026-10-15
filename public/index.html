@@ -12,10 +12,6 @@
   body.idle { cursor: none; }
   /* the scene fades up from black like the fire is being lit */
   #fade { position: fixed; inset: 0; z-index: 5; background: #000; pointer-events: none; transition: opacity 2.5s ease; }
-  /* partner logos, bottom centre */
-  #partners { position: fixed; left: 50%; bottom: 2.4vh; z-index: 2; transform: translateX(-50%); height: 3.4vh; width: auto;
-              pointer-events: none; opacity: .92; transition: opacity .9s ease; }
-  body.zoomed #partners { opacity: 0; }   /* out of the way while the camera is in the TV */
   body.ready #fade { opacity: 0; }
   body.ready #fade.on { opacity: 1; transition-duration: .8s; }   /* theme switch */
   #toast { z-index: 6; position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); padding: 8px 16px; border-radius: 6px;
@@ -32,7 +28,6 @@
 </head>
 <body>
   <span class="preload">a</span><span class="preload">a</span>
-  <img id="partners" src="/partners.png" alt="Partners">
   <div id="fade"></div>
   <div id="status">reconnecting…</div>
   <div id="toast"></div>

@@ -1,6 +1,7 @@
 // What's on the TV. Draws onto a 1024x768 canvas that the 3D scene uses as the CRT texture.
-// Only two things ever show: the QR code (with one caption line) and audience questions.
+// Three things show: the QR code (with one caption line), partner logos and audience questions.
 // Automatic: questions queue up; each is typed out, held, then the TV goes back to the QR.
+// With nothing queued the QR takes turns with the partner logos, one logo at a time (QR, logo 1, QR, logo 2…).
 // Manual (presenter keys): → next question, ← previous, ↑ the QR, ↓ back to automatic.
 // While manual, whatever was picked stays up; new questions still ping and wait in the queue.
 // Switching content waits for the static burst to peak (SWAP_MS) so the change is hidden in the noise.
@@ -13,6 +14,43 @@ const TYPE_CPS = 38;
 const SWAP_MS = 140;
 const HISTORY = 200;
 const QR_SIZE = 500;   // leaves room for a big, readable caption underneath
+const QR_HOLD_MS = 16000;       // QR between partner logos
+const PARTNER_MS = 6500;        // each partner logo
+const PARTNER_GAP = 24;         // empty columns that separate two partners in partners.png
+
+// partners.png is one strip of logos. Cut it into one canvas per partner wherever there's a wide transparent gap
+// (an icon and its wordmark sit closer than that, so they stay together). White wordmarks turn amber to suit the tube.
+function splitPartners(img) {
+  const w = img.width, h = img.height;
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const x = c.getContext('2d', { willReadFrequently: true });
+  x.drawImage(img, 0, 0);
+  const d = x.getImageData(0, 0, w, h).data;
+  const solid = (i, j) => d[(j * w + i) * 4 + 3] > 20;
+  const used = [...Array(w)].map((_, i) => { for (let j = 0; j < h; j++) if (solid(i, j)) return true; return false; });
+  const spans = [];
+  for (let i = 0, gap = Infinity; i < w; i++) {
+    if (!used[i]) { gap++; continue; }
+    if (gap >= PARTNER_GAP || !spans.length) spans.push([i, i + 1]); else spans[spans.length - 1][1] = i + 1;
+    gap = 0;
+  }
+  return spans.map(([a, b]) => {
+    let top = h, bottom = 0;
+    for (let j = 0; j < h; j++) for (let i = a; i < b; i++) if (solid(i, j)) { top = Math.min(top, j); bottom = Math.max(bottom, j + 1); }
+    const out = document.createElement('canvas');
+    out.width = b - a; out.height = bottom - top;
+    const o = out.getContext('2d');
+    o.drawImage(c, a, top, out.width, out.height, 0, 0, out.width, out.height);
+    const px = o.getImageData(0, 0, out.width, out.height);
+    const p = px.data;
+    for (let k = 0; k < p.length; k += 4) {
+      if (p[k] > 200 && p[k + 1] > 200 && p[k + 2] > 200) { p[k] = 255; p[k + 1] = 178; p[k + 2] = 56; }
+    }
+    o.putImageData(px, 0, 0);
+    return out;
+  });
+}
 
 // Turn the server's dark-on-light QR into light-on-transparent at exactly the size it's shown,
 // with crisp module edges (phones read inverted codes fine).
@@ -43,6 +81,12 @@ export class TVScreen {
     const img = new Image();
     img.onload = () => { this.qr = invertQr(img, QR_SIZE); this.dirty = true; };
     img.src = '/api/qr.svg';
+    this.partners = [];
+    this.partnerAt = 0;             // whose turn is next
+    this.sponsors = true;           // admin switch
+    const strip = new Image();
+    strip.onload = () => { this.partners = splitPartners(strip); };
+    strip.src = '/partners.png';
     this.onSwitch = () => {};       // content is about to change (start the static burst)
     this.onQuestion = () => {};     // a new question just arrived (ping + shake)
     this.queue = [];                // waiting to be shown
@@ -73,8 +117,17 @@ export class TVScreen {
 
   showQr() {
     clearTimeout(this.timer);
-    if ((this.pending || this.current)?.kind === 'qr') return;
-    this.show({ kind: 'qr' });
+    if ((this.pending || this.current)?.kind !== 'qr') this.show({ kind: 'qr' });
+    if (!this.manual) this.timer = setTimeout(() => this.showPartner(), QR_HOLD_MS);
+  }
+
+  // the next partner's turn, then back to the QR (or to a question that arrived meanwhile)
+  showPartner() {
+    clearTimeout(this.timer);
+    if (this.manual || !this.sponsors || !this.partners.length) return this.showQr();
+    const i = this.partnerAt++ % this.partners.length;
+    this.show({ kind: 'partner', i });
+    this.timer = setTimeout(() => this.next(), PARTNER_MS);
   }
 
   showQuestion(m, { replay = false } = {}) {
@@ -122,8 +175,12 @@ export class TVScreen {
     if (!this.manual && (this.pending || this.current)?.kind === 'question') this.next();
   }
   setFocus(on) { this.focus = on; }
-  setConfig({ caption } = {}) {
+  setConfig({ caption, sponsors } = {}) {
     if (typeof caption === 'string' && caption.trim()) this.caption = caption.trim().toUpperCase();
+    if (typeof sponsors === 'boolean') {
+      this.sponsors = sponsors;
+      if (!sponsors && (this.pending || this.current)?.kind === 'partner') this.next();
+    }
     this.dirty = true;
   }
 
@@ -168,6 +225,7 @@ export class TVScreen {
     const cur = this.current;
     if (!cur) return true;
     if (cur.kind === 'qr') this.qrView(blink);
+    else if (cur.kind === 'partner') this.partnerView(cur.i);
     else if (cur.kind === 'question') this.question(cur, now, blink);
     return true;
   }
@@ -213,6 +271,20 @@ export class TVScreen {
     const cap = this.caption + (blink ? '_' : ' ');
     // big enough to read from the back of the room (sized to fit the width, up to 88px)
     this.text(cap, W / 2, 668, this.fit(cap, W - MX * 2, 88, 40), AMBER, 'center');
+    this.glow(false);
+  }
+
+  // one partner logo, as large as the glass allows
+  partnerView(i) {
+    const logo = this.partners[i];
+    if (!logo) return;
+    const s = Math.min((W - MX * 2 - 40) / logo.width, 380 / logo.height);
+    const w = logo.width * s, h = logo.height * s;
+    const c = this.ctx;
+    this.glow(true);
+    c.imageSmoothingEnabled = true;
+    c.imageSmoothingQuality = 'high';
+    c.drawImage(logo, (W - w) / 2, (H - h) / 2 - 10, w, h);
     this.glow(false);
   }
 

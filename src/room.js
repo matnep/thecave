@@ -1,6 +1,6 @@
 // The Cave room: one Durable Object holds everything for the event.
 //   questions  SQLite table; status = pending | approved | answered | rejected
-//   settings   SQLite key/value (JSON): moderation, focus, presenters, live presenter, TV caption
+//   settings   SQLite key/value (JSON): moderation, focus, presenters, live presenter, TV caption, partner logos on the TV
 // Live clients connect over hibernatable WebSockets, tagged 'display' (backdrop) or 'admin'.
 import { DurableObject } from 'cloudflare:workers';
 
@@ -14,6 +14,7 @@ const DEFAULTS = {
   presenters: [],          // [{ id, name, title }]
   live: null,              // id of the presenter on stage
   caption: 'SCAN TO ASK A QUESTION',   // the only line of text under the QR on the TV
+  sponsors: true,          // partner logos take turns with the QR on the TV
 };
 
 // Anything matching goes to "pending" for a human to check, even with moderation off.
@@ -60,7 +61,7 @@ export class Room extends DurableObject {
   }
   // what the backdrop needs
   config() {
-    return { caption: this.setting('caption'), presenter: this.livePresenter(), focus: this.setting('focus') };
+    return { caption: this.setting('caption'), presenter: this.livePresenter(), focus: this.setting('focus'), sponsors: this.setting('sponsors') };
   }
 
   // ------------------------------------------------------------ live connections
@@ -89,7 +90,7 @@ export class Room extends DurableObject {
       questions: this.sql.exec('SELECT * FROM questions ORDER BY id DESC LIMIT 1000').toArray(),
       settings: {
         moderation: this.setting('moderation'), focus: this.setting('focus'), presenters: this.setting('presenters'),
-        live: this.setting('live'), caption: this.setting('caption'),
+        live: this.setting('live'), caption: this.setting('caption'), sponsors: this.setting('sponsors'),
       },
       formUrl: `${(this.env.PUBLIC_URL || '').replace(/\/$/, '')}/form`,
     };
@@ -179,6 +180,10 @@ export class Room extends DurableObject {
         break;
       case 'caption':
         this.put('caption', clean(body.caption, 40).toUpperCase() || DEFAULTS.caption);
+        this.broadcast('display', { type: 'config', config: this.config() });
+        break;
+      case 'sponsors':
+        this.put('sponsors', !!body.on);
         this.broadcast('display', { type: 'config', config: this.config() });
         break;
       default:
