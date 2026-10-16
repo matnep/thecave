@@ -7,10 +7,9 @@
 // swimmers steer away before they reach a rock and can never move deeper into one; fish only jump over open water.
 import * as THREE from 'three';
 
-const flat = (color, extra = {}) => new THREE.MeshStandardMaterial({ color, roughness: .7, flatShading: true, ...extra });
 const ease = (x) => x * x * (3 - 2 * x);
 
-export function createLife(scene, { groundY, MOUTH, clearance }) {
+export function createLife(scene, { groundY, MOUTH, clearance, models }) {
   const open = (x, z) => (clearance ? clearance.clear(x, z) : 9);
   // is there at least `r` of open water all along the straight line from a to b?
   const clearLine = (ax, az, bx, bz, r) => {
@@ -56,126 +55,14 @@ export function createLife(scene, { groundY, MOUTH, clearance }) {
   }
 
   // ------------------------------------------------------------ ducks
-  // Low-poly, after the reference: a chunky faceted body with a raised pointed tail, a white breast and collar,
-  // a tall neck, an angular head, a long flat bill (yellow on top, orange-red underneath) and a ringed eye.
-  // Articulated: root (heading) → tilt (pitch/roll) → body, wings, tail pivot, neck pivot (neck, head, bill, eyes).
-  const DUCK = {
-    hen: { body: 0x1f1d1c, wing: 0x2b2826, breast: 0xece4d4, head: 0x1f1d1c, billTop: 0xf6b43c, billBot: 0xd9541e },
-    drake: { body: 0x1c1f1d, wing: 0x29302b, breast: 0xece4d4, head: 0x16302a, billTop: 0xf2c046, billBot: 0xd9541e },
-    chick: { body: 0xeec74e, wing: 0xdcb23e, breast: 0xfae49c, head: 0xeec74e, billTop: 0xf09a32, billBot: 0xcf5a1c },
-  };
-  const vc = (geo) => new THREE.Mesh(geo, flat(0xffffff, { vertexColors: true, side: THREE.DoubleSide }));
-  function paintFaces(geo, pick, jitter = .08) {
-    const p = geo.attributes.position, col = new Float32Array(p.count * 3), c = new THREE.Color();
-    for (let f = 0; f < p.count; f += 3) {
-      const x = (p.getX(f) + p.getX(f + 1) + p.getX(f + 2)) / 3, y = (p.getY(f) + p.getY(f + 1) + p.getY(f + 2)) / 3, z = (p.getZ(f) + p.getZ(f + 1) + p.getZ(f + 2)) / 3;
-      c.setHex(pick(x, y, z));
-      c.multiplyScalar(1 - jitter + Math.abs(Math.sin(f * 12.9898)) * jitter * 2);   // face-to-face variation, like folded paper
-      for (let k = 0; k < 3; k++) col.set([c.r, c.g, c.b], (f + k) * 3);
-    }
-    geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
-    return geo;
-  }
-  // A low-poly body lofted along x through cross-sections placed exactly where the silhouette turns or a colour
-  // changes, so shapes and stripes land on face edges. Each station: { x, top, bot, w } (w = half-width);
-  // `flat` squares off the underside. Ends are capped. Returns non-indexed geometry.
-  function loft(stations, sides = 7, { flat: flatBottom = 0 } = {}) {
-    const ring = (st) => {
-      const yc = (st.top + st.bot) / 2, ry = (st.top - st.bot) / 2, pts = [];
-      for (let j = 0; j < sides; j++) {
-        const a = (j / sides) * Math.PI * 2;
-        let y = yc + Math.cos(a) * ry;
-        if (flatBottom) y = Math.max(y, st.bot + ry * flatBottom);
-        pts.push([st.x, y, Math.sin(a) * st.w]);
-      }
-      return pts;
-    };
-    const rings = stations.map(ring), out = [];
-    const tri = (a, b, c) => out.push(...a, ...b, ...c);
-    for (let i = 0; i < rings.length - 1; i++) for (let j = 0; j < sides; j++) {
-      const a = rings[i][j], b = rings[i][(j + 1) % sides], c = rings[i + 1][j], d = rings[i + 1][(j + 1) % sides];
-      tri(a, c, d); tri(a, d, b);
-    }
-    for (const [r, st, flip] of [[rings[0], stations[0], true], [rings[rings.length - 1], stations[stations.length - 1], false]]) {
-      const cen = [st.x, (st.top + st.bot) / 2, 0];
-      for (let j = 0; j < sides; j++) flip ? tri(cen, r[(j + 1) % sides], r[j]) : tri(cen, r[j], r[(j + 1) % sides]);
-    }
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.Float32BufferAttribute(out, 3));
-    g.computeVertexNormals();
-    return g;
-  }
-  // side profile after the reference: high full breast at the front, flat underside, tail sweeping up to a point
-  const DUCK_BODY = [
-    { x: .28, top: .23, bot: .12, w: .03 },
-    { x: .23, top: .33, bot: .03, w: .14 },
-    { x: .12, top: .35, bot: 0, w: .2 },
-    { x: .0, top: .33, bot: 0, w: .2 },
-    { x: -.11, top: .31, bot: .02, w: .17 },
-    { x: -.2, top: .34, bot: .08, w: .1 },
-    { x: -.27, top: .45, bot: .29, w: .03 },
-  ];
-  function duckBody(kind) {
-    const pal = DUCK[kind];
-    const g = loft(DUCK_BODY, 7, { flat: .35 });
-    return paintFaces(g, (x, y) => {
-      if (x > .12 && y > .12) return pal.breast;              // white chest, up to the collar
-      if (x < -.17 && y < .2) return pal.breast;            // pale under the tail
-      return pal.body;
-    });
-  }
+  // The artist-made mallard (see creature-models.js), wrapped so the swimming code can steer it:
+  // root (heading) → tilt (pitch/roll: lean into turns, tip forward to dabble) → the model.
+  // Ducklings are the same model, smaller.
   function makeDuck(kind) {
-    const pal = DUCK[kind];
     const root = new THREE.Group(), tilt = new THREE.Group(), neck = new THREE.Group(), tail = new THREE.Group();
     root.add(tilt);
-    const mesh = (parent, geo, color, pos, scale = [1, 1, 1], rot = [0, 0, 0], extra) => {
-      const m = new THREE.Mesh(geo, flat(color, extra));
-      m.position.set(...pos); m.scale.set(...scale); m.rotation.set(...rot);
-      m.castShadow = true; parent.add(m); return m;
-    };
-    const body = vc(duckBody(kind));
-    body.castShadow = true;
-    tilt.add(body);
-    // folded wings: flat faceted panels lying along the sides, on pivots so they can give a little shake
-    const wings = [-1, 1].map((s) => {
-      const pivot = new THREE.Group();
-      pivot.position.set(-.02, .26, s * .165);
-      tilt.add(pivot);
-      mesh(pivot, new THREE.OctahedronGeometry(1, 0), pal.wing, [-.06, 0, 0], [.15, .06, .025], [s * -.25, s * .06, .3]);
-      return pivot;
-    });
-    tail.position.set(-.27, .41, 0); tilt.add(tail);
-    mesh(tail, new THREE.ConeGeometry(.04, .1, 4), pal.body, [-.02, .02, 0], [1, 1, .5], [0, 0, Math.PI / 2 + .9]);
-    // neck: white collar at the base, dark above, leaning back a little; then the head and bill
-    neck.position.set(.18, .27, 0); tilt.add(neck);
-    mesh(neck, new THREE.CylinderGeometry(.07, .09, .08, 5), pal.breast, [-.005, .02, 0], [1, 1, .9], [0, 0, .12]);
-    mesh(neck, new THREE.CylinderGeometry(.055, .07, .2, 5), pal.head, [-.02, .15, 0], [1, 1, .9], [0, 0, .12]);
-    const headGeo = new THREE.IcosahedronGeometry(1, 0);
-    mesh(neck, headGeo, pal.head, [.0, .29, 0], [.115, .095, .085], [0, 0, -.2]);
-    // the bill: a long flat wedge, yellow on top, orange-red underneath, narrowing to a blunt tip
-    const wedge = (w, h, d, drop) => {
-      const g = new THREE.BoxGeometry(w, h, d, 1, 1, 1);
-      const bp = g.attributes.position;
-      for (let i = 0; i < bp.count; i++) {
-        const x = bp.getX(i);
-        if (x > 0) { bp.setZ(i, bp.getZ(i) * .62); bp.setY(i, bp.getY(i) - drop); }
-      }
-      g.computeVertexNormals();
-      return g;
-    };
-    mesh(neck, wedge(.18, .03, .075, .012), pal.billTop, [.165, .27, 0], [1, 1, 1], [0, 0, -.08]);
-    mesh(neck, wedge(.16, .02, .066, .01), pal.billBot, [.155, .246, 0], [1, 1, 1], [0, 0, -.08]);
-    // eyes: a white ring round a dark pupil, flat on each side of the head
-    for (const s of [-1, 1]) {
-      const eye = new THREE.Group();
-      eye.position.set(.03, .31, s * .077);
-      eye.rotation.y = s > 0 ? 0 : Math.PI;
-      eye.add(new THREE.Mesh(new THREE.RingGeometry(.016, .024, 8), flat(0xe8e4dc)));
-      const pupil = new THREE.Mesh(new THREE.CircleGeometry(.016, 8), flat(0x060505));
-      pupil.position.z = .001; eye.add(pupil);
-      neck.add(eye);
-    }
-    root.userData = { tilt, neck, tail, wings, size: (kind === 'chick' ? .55 : 1) * 1.8 };
+    tilt.add(models.duck(kind === 'chick' ? 'chick' : 'adult'), neck, tail);      // neck/tail are kept as (invisible) pivots the swim animation drives
+    root.userData = { tilt, neck, tail, wings: null, size: (kind === 'chick' ? .55 : 1) * 1.8 };
     root.scale.setScalar(root.userData.size);
     return root;
   }
@@ -385,72 +272,14 @@ export function createLife(scene, { groundY, MOUTH, clearance }) {
 
   // ------------------------------------------------------------ jumping fish
   // Rises from under the water (the water surface hides it until it breaks through), nose follows the arc,
-  // tail beats, and it splashes exactly where it leaves and re-enters the surface.
-  // A low-poly clownfish, after the reference: deep orange body with three white bands edged in black,
-  // black-rimmed fins, a rounded tail fan and a dark eye.
-  const ORANGE = 0xe8752a, ORANGE_LO = 0xc4511e, WHITE = 0xeef0e8, BLACK = 0x161413;
-  const fishBodyMat = flat(0xffffff, { vertexColors: true, roughness: .55, side: THREE.DoubleSide });
-  const finBlack = flat(BLACK, { side: THREE.DoubleSide });
-  const finOrange = flat(ORANGE, { side: THREE.DoubleSide });
-  // white bands along the body (in -1..1 of its length), each with a black rim
-  const BANDS = [[.3, .6], [-.16, .18], [-.82, -.6]];
-  function bandAt(u) {
-    for (const [a, b] of BANDS) {
-      if (u >= a && u <= b) return 'white';
-      if (u >= a - .04 && u <= b + .04) return 'black';
-    }
-    return null;
-  }
+  // and it splashes exactly where it leaves and re-enters the surface. The fish is Quaternius's rigged
+  // clownfish (see creature-models.js) playing its own fast-swim animation, so the tail and fins really move.
   function makeFish() {
+    const inst = models.fish();
     const g = new THREE.Group();
-    const L = .28;
-    // depth along the body (u = -1 tail .. 1 nose): deep and round at the front, narrowing to a wrist
-    const depth = (u) => (u > .95 ? .035 : u >= 0 ? .145 * (1 - u * u * .62) : u > -.85 ? .145 * (1 + u * .6) : .042);
-    const edges = new Set([1, .95, .84, .72]);
-    for (const [a, b] of BANDS) for (const e of [a - .04, a, b, b + .04]) edges.add(+e.toFixed(3));
-    for (const e of [-.4, -.86, -.95]) edges.add(e);
-    const us = [...edges].sort((a, b) => a - b);
-    const bodyGeo = loft(us.map((u) => ({ x: u * L, top: depth(u), bot: -depth(u) * .85, w: depth(u) * .45 })), 7);
-    paintFaces(bodyGeo, (x, y) => {
-      const band = bandAt(Math.max(-1, Math.min(1, x / L)));
-      if (band === 'white') return WHITE;
-      if (band === 'black') return BLACK;
-      return y < -.03 ? ORANGE_LO : ORANGE;
-    }, .1);
-    g.add(new THREE.Mesh(bodyGeo, fishBodyMat));
-    // a fin: a black silhouette with an orange inset, so it reads as orange with a black rim from either side
-    const shape = (pts) => { const s = new THREE.Shape(); s.moveTo(...pts[0]); for (const q of pts.slice(1)) s.lineTo(...q); return new THREE.ShapeGeometry(s); };
-    function fin(pts, inset = .62) {
-      const f = new THREE.Group();
-      f.add(new THREE.Mesh(shape(pts), finBlack));
-      const cx = pts.reduce((a, q) => a + q[0], 0) / pts.length, cy = pts.reduce((a, q) => a + q[1], 0) / pts.length;
-      const inner = pts.map(([x, y]) => [cx + (x - cx) * inset, cy + (y - cy) * inset]);
-      for (const z of [-.002, .002]) { const m = new THREE.Mesh(shape(inner), finOrange); m.position.z = z; f.add(m); }
-      return f;
-    }
-    // rounded tail fan on a pivot so it can beat
-    const tail = new THREE.Group();
-    tail.position.x = -L * .95;
-    const fan = [[0, 0]];
-    for (let k = 0; k <= 6; k++) { const a = Math.PI * (.62 + k / 6 * .76); fan.push([Math.cos(a) * .15, Math.sin(a) * .12]); }
-    tail.add(fin(fan, .6));
-    g.add(tail);
-    // dorsal fin in two lobes, a pelvic and an anal fin underneath, a rounded pectoral on each side
-    const dorsal = fin([[.13, 0], [.08, .07], [.0, .075], [-.02, .03], [-.06, .08], [-.15, .06], [-.19, 0]], .55);
-    dorsal.position.y = .11; g.add(dorsal);
-    const anal = fin([[-.06, 0], [-.1, -.065], [-.17, -.05], [-.2, 0]], .55);
-    anal.position.y = -.08; g.add(anal);
-    const pelvic = fin([[.08, 0], [.04, -.07], [-.0, -.05], [.0, 0]], .5);
-    pelvic.position.y = -.1; g.add(pelvic);
-    for (const s of [-1, 1]) {
-      const pec = fin([[0, 0], [-.04, -.05], [-.09, -.05], [-.1, 0], [-.07, .03]], .55);
-      pec.position.set(.1, -.02, s * .05); pec.rotation.x = s * .5;
-      g.add(pec);
-      const eye = new THREE.Mesh(new THREE.CircleGeometry(.017, 7), flat(0x060505));
-      eye.position.set(.2, .03, s * .044); eye.rotation.y = s > 0 ? .35 : Math.PI - .35;
-      g.add(eye);
-    }
-    g.userData.tail = tail;
+    g.add(inst.object);
+    inst.play('Swimming_Fast', 0);
+    g.userData = { tail: new THREE.Group(), fish: inst };
     g.scale.setScalar(1.6);
     return g;
   }
@@ -485,7 +314,7 @@ export function createLife(scene, { groundY, MOUTH, clearance }) {
           o.f.position.set(o.x + o.dir * o.L * u, y, o.z);
           const pitch = Math.atan2(rise * 4 * (1 - 2 * u), o.L);   // nose along the arc
           o.f.rotation.set(Math.sin(u * Math.PI) * .25 * o.dir, o.dir > 0 ? 0 : Math.PI, pitch);
-          o.f.userData.tail.rotation.y = Math.sin(age * 26) * (.25 + .5 * Math.abs(1 - 2 * u));   // beats hardest in the water
+          o.f.userData.fish.mixer.update(dt);
           if (!o.above && y > 0) { o.above = true; splash(o.f.position.x, o.z, 10, .7); }
           if (o.above && !o.done && y < 0) { o.done = true; splash(o.f.position.x, o.z, 16, 1); }
         }

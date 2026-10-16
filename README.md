@@ -56,7 +56,7 @@ The last theme used is remembered; `/?theme=1` forces one.
 
 To add a theme: copy `firelit-cave.js`, change it, and register it in the `THEMES` list at the top of `public/js/main.js`.
 
-Shared pieces: `public/js/main.js` (renderer, keys, WebSocket to the room) · `sound.js` (question chimes and the campfire crackle, synthesised with WebAudio: no audio files, nothing to license) · `beacon.js` (the alarm light) · `flip-clock.js` (the clock on the TV) · `tv-screen.js` (what's on the TV) · `tv.js` (the TV model) · `themes/treasure.js` (the hoard) · `fire.js` (campfire) · `wall-art.js` (logo painting)
+Shared pieces: `public/js/main.js` (renderer, keys, WebSocket to the room) · `sound.js` (question chimes and the campfire crackle, synthesised with WebAudio: no audio files, nothing to license) · `beacon.js` (the alarm light) · `flip-clock.js` (the clock on the TV) · `themes/creature-models.js` (loads the duck and fish models, see Credits) · `tv-screen.js` (what's on the TV) · `tv.js` (the TV model) · `themes/treasure.js` (the hoard) · `fire.js` (campfire) · `wall-art.js` (logo painting)
 
 The TV runs a slideshow: the QR code, then up to three approved questions, then each partner logo in turn, and round again. Every approved question keeps coming
 back until it's marked answered or hidden. A new question goes up as soon as the one on screen has had its time: the chime plays and the alarm
@@ -73,3 +73,7 @@ After any arrow key the TV is on manual and holds what you picked; new questions
 **Performance:** open the backdrop in Chrome/Edge with hardware acceleration on. Press **P** for an FPS meter.
 The scene renders at 1x pixel ratio with MSAA, merges static rock/TV/campfire parts into a few draw calls, draws the sun shadow once, and fakes the water's light (glints from the opening, fire and TV off the ripples) instead of rendering a mirror reflection.
 If frames still drop it steps down automatically: lower resolution, then no shadows or bloom (the meter shows the step as q0 to q3).
+
+## Credits
+- Duck: "Mallard duck" by Poly by Google, [CC-BY 3.0](https://creativecommons.org/licenses/by/3.0/), via [Poly Pizza](https://poly.pizza/m/frSLi6b6Vid) (`public/models/mallard.glb`; ducklings use the same model in plain yellow)
+- Fish: "Clownfish" by [Quaternius](https://quaternius.com), CC0, via [Poly Pizza](https://poly.pizza/m/769fHo3eEB) (`public/models/clownfish.glb`; recoloured)

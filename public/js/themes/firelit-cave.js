@@ -20,6 +20,7 @@ import { makeFlipClock } from '../flip-clock.js';
 import { makeFire } from '../fire.js';
 import { createLife } from './cave-life.js';
 import { createClearance } from './clearance.js';
+import { loadCreatureModels } from './creature-models.js';
 import { makeTreasure } from './treasure.js';
 
 export const name = 'Firelit cave';
@@ -749,7 +750,7 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
 
 
   // ============================================================ ambient life
-  const life = createLife(scene, { groundY, MOUTH, smooth, mix, clearance });
+  const life = createLife(scene, { groundY, MOUTH, smooth, mix, clearance, models: await loadCreatureModels() });
 
   // ============================================================ per-frame
   const look = HOME.look.clone();
