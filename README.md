@@ -60,9 +60,10 @@ Shared pieces: `public/js/main.js` (renderer, keys, WebSocket to the room) · `s
 
 The TV runs a slideshow: the QR code, then up to three approved questions, then each partner logo in turn, and round again. Every approved question keeps coming
 back until it's marked answered or hidden. A new question goes up as soon as the one on screen has had its time: the chime plays and the alarm
-beacon on top of the TV turns from clear glass to red and rattles on the cabinet. The QR is drawn amber-on-dark to match the TV. Sound needs one key press or click
+beacon on top of the TV turns from clear glass to red, rattles on the cabinet and glows gently (a slow, shallow pulse).
+Slides change with a soft 0.7 s crossfade: no static, flashes or strobing anywhere, to be safe for photosensitive viewers. The QR is drawn amber-on-dark to match the TV. Sound needs one key press or click
 on the backdrop first (browsers block sound until then); pressing **F** for fullscreen is enough.
-The TV's cabinet is worn; a retro flip clock on top shows the time; a hoard of gold glints under it (coins, a crown and two swords) with an old ship's anchor lying beside it. Partner logos (`public/partners.png`) take turns with the QR on the TV: the strip is split into one logo per partner wherever there is a wide transparent gap.
+The TV's cabinet is worn; a retro flip clock on top shows the time; a hoard of gold glints under it (coins, a crown, two swords, and an open chest on the floor pouring gold into a pile) with an old ship's anchor lying beside it. Partner logos (`public/partners.png`) take turns with the QR on the TV: the strip is split into one logo per partner wherever there is a wide transparent gap.
 From /admin you can bring any question back with **Show again**.
 
 **Backdrop keys:** `1`–`9` theme · `F` fullscreen · `Q` camera zooms in/out of the TV (shows whatever is on it) · `C` chromatic aberration on/off on this screen (the admin setting wins on its next change; eases off while zoomed into the TV) · `P` FPS meter
@@ -76,4 +77,4 @@ If frames still drop it steps down automatically: lower resolution, then no shad
 
 ## Credits
 - Duck: "Mallard duck" by Poly by Google, [CC-BY 3.0](https://creativecommons.org/licenses/by/3.0/), via [Poly Pizza](https://poly.pizza/m/frSLi6b6Vid) (`public/models/mallard.glb`; ducklings use the same model in plain yellow)
-- Fish: "Clownfish" by [Quaternius](https://quaternius.com), CC0, via [Poly Pizza](https://poly.pizza/m/769fHo3eEB) (`public/models/clownfish.glb`; recoloured)
+- Fish: "Clownfish" by [Quaternius](https://quaternius.com), CC0, via [Poly Pizza](https://poly.pizza/m/769fHo3eEB) (`public/models/clownfish.glb`; recoloured to the cave palette)

@@ -171,22 +171,32 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
     return addRock(g, { seed, moss: .15, wetLine: -99 });
   }
 
-  function sheet(w, h, sx, sy, amp, freq, seed, matrix, keepFace = null) {
+  // A rocky sheet: a grid pushed in and out by noise. keepFace(x, y) cuts faces away (the mouth); snapEdge(x, y)
+  // then moves the vertices along that cut onto the true outline, so a coarse grid still gets a clean edge.
+  function sheet(w, h, sx, sy, amp, freq, seed, matrix, keepFace = null, snapEdge = null) {
     const g = new THREE.PlaneGeometry(w, h, sx, sy);
     const p = g.attributes.position;
+    if (keepFace) {
+      const idx = g.index.array, keep = [];
+      const kept = new Uint8Array(p.count), cut = new Uint8Array(p.count);
+      for (let i = 0; i < idx.length; i += 3) {
+        const cx = (p.getX(idx[i]) + p.getX(idx[i + 1]) + p.getX(idx[i + 2])) / 3;
+        const cy = (p.getY(idx[i]) + p.getY(idx[i + 1]) + p.getY(idx[i + 2])) / 3;
+        const k = keepFace(cx, cy);
+        if (k) keep.push(idx[i], idx[i + 1], idx[i + 2]);
+        for (let j = 0; j < 3; j++) (k ? kept : cut)[idx[i + j]] = 1;
+      }
+      g.setIndex(keep);
+      if (snapEdge) for (let i = 0; i < p.count; i++) {
+        if (!kept[i] || !cut[i]) continue;             // only vertices on the cut
+        const [x, y] = snapEdge(p.getX(i), p.getY(i));
+        p.setXY(i, x, y);
+      }
+    }
     for (let i = 0; i < p.count; i++) {
       const x = p.getX(i), y = p.getY(i);
       const ridge = 1 - Math.abs(simplex.noise3d(x * freq * .6, y * freq * .6, seed + 9));
       p.setZ(i, (fbm(x * freq, y * freq, seed) * .8 + ridge * .6) * amp);
-    }
-    if (keepFace) {
-      const idx = g.index.array, keep = [];
-      for (let i = 0; i < idx.length; i += 3) {
-        const cx = (p.getX(idx[i]) + p.getX(idx[i + 1]) + p.getX(idx[i + 2])) / 3;
-        const cy = (p.getY(idx[i]) + p.getY(idx[i + 1]) + p.getY(idx[i + 2])) / 3;
-        if (keepFace(cx, cy)) keep.push(idx[i], idx[i + 1], idx[i + 2]);
-      }
-      g.setIndex(keep);
     }
     g.applyMatrix4(matrix);
     return g;
@@ -239,7 +249,19 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
     const hw = y > .6 ? 5 * Math.sqrt(Math.max(0, 1 - ((y - .6) / 6.2) ** 2)) : 5 + (.6 - y) * .4;
     return Math.abs(x - MOUTH.x) < hw + jag && y < 6.8;
   };
-  addRock(sheet(56, 30, 150, 80, 1.6, .22, 3, M([0, 9, MOUTH.z], [0, 0, 0]), (x, y) => !inMouth(x, y + 9)), { seed: 3, moss: .4 }, { cast: false });
+  // the back wall, with the opening cut out. Coarse on purpose (about 1.2 units a face, like the side walls):
+  // a fine grid this far away turns into a fizz of tiny triangles. The cut edge is snapped onto the outline,
+  // found by bisecting from the middle of the opening out to each edge vertex.
+  const MOUTH_MID = [MOUTH.x, 3 - 9];
+  const toMouthEdge = (x, y) => {
+    let a = 0, b = 2;                     // the vertex may sit just inside or just outside the outline
+    for (let k = 0; k < 18; k++) {
+      const m = (a + b) / 2;
+      if (inMouth(MOUTH_MID[0] + (x - MOUTH_MID[0]) * m, MOUTH_MID[1] + (y - MOUTH_MID[1]) * m + 9)) a = m; else b = m;
+    }
+    return [MOUTH_MID[0] + (x - MOUTH_MID[0]) * b, MOUTH_MID[1] + (y - MOUTH_MID[1]) * b];
+  };
+  addRock(sheet(56, 30, 48, 26, 1.6, .22, 3, M([0, 9, MOUTH.z], [0, 0, 0]), (x, y) => !inMouth(x, y + 9), toMouthEdge), { seed: 3, moss: .4 }, { cast: false });
   // fringe of small stalactites along the opening's lintel, rocks inside the opening
   [[-6.2, 2.0], [-4.6, 1.4], [-3.1, 2.4], [-1.6, 1.6], [0, 2.1], [1.5, 1.2], [2.6, 1.8]].forEach(([dx, len], i) =>
     stalactite(MOUTH.x + dx + 2.1, 9.6, MOUTH.z + 1.2, len + 1.6, .55, 200 + i));
@@ -681,7 +703,8 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
     { x: TV_AT.x + .1, z: TV_AT.z + .85, r: .42, h: .32, n: 130 },
     { x: TV_AT.x + .8, z: TV_AT.z + .7, r: .3, h: .24, n: 80 },
     { x: TV_AT.x - .35, z: TV_AT.z + 1.25, r: .26, h: .14, n: 45 },
-  ], { x: TV_AT.x - 1.2, z: TV_AT.z + 1.15, rotY: .5, scale: .9 });
+  ], { x: TV_AT.x + 1.35, z: TV_AT.z + 1.45, rotY: -.6, scale: .9 },   // the anchor, off to the right
+  { x: TV_AT.x - .55, z: TV_AT.z + 1.55, rotY: .35, scale: 1.05 });     // the chest, on the floor in front
 
   scene.updateMatrixWorld(true);
   const screenWorld = screen.getWorldPosition(new THREE.Vector3());
@@ -755,20 +778,17 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
   // ============================================================ per-frame
   const look = HOME.look.clone();
   let focus = 0;           // 0 = wide shot, 1 = close on the TV
-  // static burst when the TV changes: ramps up, content swaps at the peak (TVScreen waits 140 ms), then fades
-  let staticAge = 9, staticPeak = 0;
   let chroma = 0, chromaWant = 0;      // chromatic aberration, eased in/out
-  const staticEnv = () => staticAge < .14 ? staticAge / .14 : Math.max(0, 1 - (staticAge - .14) / .38);
   // camera zoom: an eased tween of fixed length rather than a chase
   let zoomFrom = 0, zoomTo = 0, zoomAge = 9;
   const ZOOM_SECS = 1.8;
   const easeInOut = (x) => (x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2);
-  let t = 0;
+  let t = 0, tvGlow = 0;
   const born = performance.now();
 
   return {
-    // TV switched slides: a brief flicker of static (kept faint: a full burst is dizzying when zoomed in)
-    onSwitch(item) { staticAge = 0; staticPeak = item.kind === 'question' ? .22 : .15; },
+    // TV switched slides: no static or flash here (photosensitivity); TVScreen crossfades the picture itself
+    onSwitch() {},
 
     // new question: the alarm beacon on the TV spins up
     onQuestion() { beacon.trigger(); },
@@ -802,12 +822,12 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
       logo.rotation.z = Math.sin(t * .31 + 1) * .015;
 
       // TV
-      staticAge += dt;
-      const staticAmt = staticEnv() * staticPeak * (1 - focus * .6);
       screenMat.uniforms.uTime.value = t;
-      screenMat.uniforms.uStatic.value = staticAmt;
+      screenMat.uniforms.uStatic.value = 0;
       screenMat.uniforms.uFocus.value = focus;
-      tvLight.intensity = (2.2 + staticAmt * 1.5 + (tvScreen.isLive ? .8 : 0)) * ig;
+      // the TV's glow eases (never jumps) between a question and the QR
+      tvGlow += ((tvScreen.isLive ? .8 : 0) - tvGlow) * Math.min(1, dt * 1.5);
+      tvLight.intensity = (2.2 + tvGlow) * ig;
       beacon.update(dt, t);
       clock.update(dt);
       treasure.update(t);

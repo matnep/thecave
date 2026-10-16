@@ -5,13 +5,14 @@
 // so every approved question keeps coming back until it's marked answered or hidden in the admin.
 // Manual (presenter keys / admin remote): → next question, ← previous, ↑ the QR, ↓ back to the slideshow.
 // While manual, whatever was picked stays up; new questions still sound the alarm and wait their turn.
-// Switching content waits for the static burst to peak (SWAP_MS) so the change is hidden in the noise.
+// Switching content is a slow crossfade (FADE_MS): no static, no flashes, nothing that strobes (photosensitivity).
 
 const W = 1024, H = 768;
 const AMBER = '#ffb238';
 const MX = 78;   // safe margin inside the curved glass
 const TYPE_CPS = 38;
-const SWAP_MS = 140;
+const SWAP_MS = 0;
+const FADE_MS = 700;            // old slide dissolves into the new one
 const QS_PER_ROUND = 3;         // questions between two QR codes in the slideshow
 const QR_SIZE = 500;   // leaves room for a big, readable caption underneath
 const QR_HOLD_MS = 14000;       // QR between rounds
@@ -165,6 +166,12 @@ export class TVScreen {
     this.pending = item;
     this.swapTimer = setTimeout(() => {
       this.pending = null;
+      // keep a copy of what's on screen now; draw() fades it out over the new slide
+      if (this.current) {
+        if (!this.prev) { this.prev = document.createElement('canvas'); this.prev.width = W; this.prev.height = H; }
+        this.prev.getContext('2d').drawImage(this.canvas, 0, 0);
+        this.fadeAt = performance.now();
+      }
       // a question the presenter steps back to appears already typed out
       this.current = { ...item, at: performance.now() - (item.instant ? 1e6 : 0) };
       this.dirty = true;
@@ -246,7 +253,9 @@ export class TVScreen {
     const blink = Math.floor(now / 530) % 2;
     // while a question types out, redraw only when another letter appears (the canvas upload is the costly part)
     const typedNow = this.current?.kind === 'question' ? Math.min(this.typed(now), this.current.m.text.length + 2) : -1;
-    if (!this.dirty && typedNow === this.lastTyped && blink === this.lastBlink) return false;
+    const fade = this.fadeAt ? Math.min(1, (now - this.fadeAt) / FADE_MS) : 1;
+    if (!this.dirty && fade >= 1 && typedNow === this.lastTyped && blink === this.lastBlink) return false;
+    if (fade >= 1) this.fadeAt = 0;
     this.dirty = false; this.lastBlink = blink; this.lastTyped = typedNow;
 
     const c = this.ctx;
@@ -264,6 +273,12 @@ export class TVScreen {
     if (cur.kind === 'qr') this.qrView(blink);
     else if (cur.kind === 'partner') this.partnerView(cur.i);
     else if (cur.kind === 'question') this.question(cur, now, blink);
+    // crossfade: the previous slide on top, fading out smoothly
+    if (fade < 1) {
+      c.globalAlpha = 1 - fade * fade * (3 - 2 * fade);
+      c.drawImage(this.prev, 0, 0);
+      c.globalAlpha = 1;
+    }
     return true;
   }
 

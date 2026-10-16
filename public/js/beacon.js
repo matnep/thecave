@@ -5,7 +5,7 @@ import * as THREE from 'three';
 
 const ALARM_SECS = 6;
 const SHAKE_SECS = 1.6;    // the hard rattle when it goes off; a lighter buzz follows while it's lit
-const PULSE_HZ = 2.2;
+const PULSE_HZ = 1;          // slow and shallow: red flashing is the riskiest kind for photosensitive viewers
 
 const CLEAR = new THREE.Color(0xb4b0a8), RED = new THREE.Color(0xe0180a);
 const BULB_OFF = new THREE.Color(.16, .155, .15), BULB_ON = new THREE.Color(.95, .05, .02);
@@ -57,7 +57,7 @@ export function makeBeacon() {
       left = Math.max(0, left - dt);
       const want = left > 0 ? 1 : 0;
       on += (want - on) * Math.min(1, dt * (want ? 6 : 1.8));
-      const pulse = .55 + .45 * Math.max(0, Math.sin(t * Math.PI * 2 * PULSE_HZ));
+      const pulse = .8 + .2 * Math.sin(t * Math.PI * 2 * PULSE_HZ);   // a gentle breathing glow, not an on/off flash
 
       domeMat.color.copy(CLEAR).lerp(RED, on);
       domeMat.opacity = .45 + on * .4;

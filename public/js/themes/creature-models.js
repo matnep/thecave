@@ -59,8 +59,9 @@ export async function loadCreatureModels() {
   const chickMat = new THREE.MeshStandardMaterial({ color: 0xf2c94c, roughness: .85, emissive: 0x3a2a08, flatShading: true });
   const duckTemplate = normalise(duck.scene, head, .62, -.13);   // sits low, feet under the water
 
-  // ---- fish: forward is wherever its eyes are. The file's colours are very dark; give it real clownfish colours.
-  const FISH_COLOURS = { Clownfish_Main: 0xff6a12, Clownfish_Light: 0xf6f2ea, Clownfish_Dark: 0x161311, Eyes: 0x050404 };
+  // ---- fish: forward is wherever its eyes are. Recoloured to sit in the cave.
+  // in the cave's own palette: rust orange like the firelit rock, warm cream bands, deep brown-black edges
+  const FISH_COLOURS = { Clownfish_Main: 0xb8572a, Clownfish_Light: 0xdcbf9c, Clownfish_Dark: 0x2a1a12, Eyes: 0x0a0605 };
   fish.scene.updateMatrixWorld(true);
   let eyes = null;
   fish.scene.traverse((m) => {
