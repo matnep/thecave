@@ -1,5 +1,6 @@
 // The Cave — Cloudflare Worker.
 // Static pages come straight from ./public; this only handles /api/*:
+//   GET  /panel               moderator panel (served from the admin build; uses the admin login)
 //   GET  /api/qr.svg          QR code pointing at <PUBLIC_URL>/form
 //   GET  /api/public          what the audience form needs (who's on stage)
 //   POST /api/message         audience question
@@ -24,6 +25,8 @@ export default {
     const room = env.ROOM.getByName('main');
 
     if (path === '/join') return Response.redirect(new URL('/form', url).toString(), 301);
+    // the moderator panel is a second page of the admin build (public/admin/panel.html)
+    if (path === '/panel') return env.ASSETS.fetch(new Request(new URL('/admin/panel', url), request));
 
     if (path === '/api/qr.svg') {
       // Without PUBLIC_URL (local dev) point at whatever address the backdrop was opened on. Read the Host

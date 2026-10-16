@@ -1,7 +1,9 @@
 // The Cave room: one Durable Object holds everything for the event.
 //   questions  SQLite table; status = pending | approved | answered | rejected
-//   settings   SQLite key/value (JSON): moderation, focus, presenters, live presenter, TV caption, partner logos on the TV
-// Live clients connect over hibernatable WebSockets, tagged 'display' (backdrop) or 'admin'.
+//   settings   SQLite key/value (JSON): moderation, focus, presenters, live presenter, TV caption, partner logos,
+//              seconds per question, sound, fire ambience, chromatic aberration, and what the TV last reported showing
+// Live clients connect over hibernatable WebSockets, tagged 'display' (backdrop) or 'admin' (admin page + moderator panel).
+// The backdrop reports what's on its TV; admins can drive the TV remotely (next / previous / QR / slideshow).
 import { DurableObject } from 'cloudflare:workers';
 
 const MAX_LEN = 140;
@@ -15,7 +17,15 @@ const DEFAULTS = {
   live: null,              // id of the presenter on stage
   caption: 'SCAN TO ASK A QUESTION',   // the only line of text under the QR on the TV
   sponsors: true,          // partner logos take turns with the QR on the TV
+  questionSecs: 25,        // how long each question stays up once it's typed out
+  sound: { chime: 'marimba', volume: .6, muted: false },   // new-question sound on the backdrop
+  ambience: { volume: .35, muted: false },                 // crackling fire
+  chroma: { on: false, amount: .6 },                       // chromatic aberration
+  tv: null,                // { kind, id, manual, at } as last reported by the backdrop
 };
+const CHIMES = ['marimba', 'bowl', 'dingdong', 'none'];
+const TV_COMMANDS = ['next', 'prev', 'qr', 'auto', 'test'];
+const level = (v, fallback) => (Number.isFinite(Number(v)) ? Math.min(1, Math.max(0, Number(v))) : fallback);
 
 // Anything matching goes to "pending" for a human to check, even with moderation off.
 // Matched on whole words after folding common look-alike characters.
@@ -61,22 +71,46 @@ export class Room extends DurableObject {
   }
   // what the backdrop needs
   config() {
-    return { caption: this.setting('caption'), presenter: this.livePresenter(), focus: this.setting('focus'), sponsors: this.setting('sponsors') };
+    return {
+      caption: this.setting('caption'), presenter: this.livePresenter(), focus: this.setting('focus'), sponsors: this.setting('sponsors'),
+      questionSecs: this.setting('questionSecs'), sound: this.setting('sound'), ambience: this.setting('ambience'), chroma: this.setting('chroma'),
+    };
   }
+  // everything cleared for the TV, oldest first: the backdrop's slideshow
+  approvedList() {
+    return this.sql.exec("SELECT id, name, text, presenter, at FROM questions WHERE status = 'approved' ORDER BY id").toArray();
+  }
+  syncDisplays() { this.broadcast('display', { type: 'approved', list: this.approvedList() }); }
+  pushConfig() { const config = this.config(); this.broadcast('display', { type: 'config', config }); }
 
   // ------------------------------------------------------------ live connections
   async fetch(request) {
     const role = new URL(request.url).searchParams.get('role') === 'admin' ? 'admin' : 'display';
     const { 0: client, 1: server } = new WebSocketPair();
     this.ctx.acceptWebSocket(server, [role]);
-    server.send(JSON.stringify(role === 'admin' ? this.adminSnapshot() : { type: 'init', config: this.config() }));
+    if (role === 'display') this.refreshAdmins();   // admins show whether a backdrop is open
+    server.send(JSON.stringify(role === 'admin' ? this.adminSnapshot() : { type: 'init', config: this.config(), approved: this.approvedList() }));
     return new Response(null, { status: 101, webSocket: client });
   }
   webSocketMessage(ws, message) {
-    if (message === 'ping') ws.send('pong');
+    if (message === 'ping') return ws.send('pong');
+    // the backdrop telling us what's on its TV
+    if (!this.ctx.getTags(ws).includes('display') || typeof message !== 'string' || message.length > 300) return;
+    let msg;
+    try { msg = JSON.parse(message); } catch { return; }
+    if (msg?.type !== 'status') return;
+    const tv = {
+      kind: ['qr', 'question', 'partner'].includes(msg.kind) ? msg.kind : null,
+      id: Number.isInteger(msg.id) ? msg.id : null,
+      manual: !!msg.manual,
+      at: Date.now(),
+    };
+    this.put('tv', tv);
+    this.broadcast('admin', { type: 'tv', tv });
   }
   webSocketClose(ws, code) {
     try { ws.close(code, 'bye'); } catch { /* already closed */ }
+    if (this.ctx.getTags(ws).includes('display')) this.refreshAdmins();
   }
   broadcast(tag, msg) {
     const data = JSON.stringify(msg);
@@ -91,7 +125,10 @@ export class Room extends DurableObject {
       settings: {
         moderation: this.setting('moderation'), focus: this.setting('focus'), presenters: this.setting('presenters'),
         live: this.setting('live'), caption: this.setting('caption'), sponsors: this.setting('sponsors'),
+        questionSecs: this.setting('questionSecs'), sound: this.setting('sound'), ambience: this.setting('ambience'), chroma: this.setting('chroma'),
       },
+      tv: this.setting('tv'),
+      displays: this.ctx.getWebSockets('display').filter((w) => w.readyState === 1).length,
       formUrl: `${(this.env.PUBLIC_URL || '').replace(/\/$/, '')}/form`,
     };
   }
@@ -120,7 +157,7 @@ export class Room extends DurableObject {
       'INSERT INTO questions (name, text, presenter, status, flagged, at) VALUES (?, ?, ?, ?, ?, ?) RETURNING *',
       name, text, presenter, held ? 'pending' : 'approved', flagged, now,
     ).one();
-    if (!held) this.broadcast('display', { type: 'message', q });
+    if (!held) { this.broadcast('display', { type: 'message', q }); this.syncDisplays(); }
     this.refreshAdmins();
     return { ok: true, moderated: !!held };
   }
@@ -138,53 +175,82 @@ export class Room extends DurableObject {
       case 'ping': return { ok: true };   // "am I still signed in?"
       case 'approve': {
         const q = setStatus('approved');
-        if (q) this.broadcast('display', { type: 'message', q });
+        if (q) { this.broadcast('display', { type: 'message', q }); this.syncDisplays(); }
         break;
       }
       case 'spotlight': {          // put on the TV now (approves it if needed)
         const q = setStatus('approved');
-        if (q) this.broadcast('display', { type: 'spotlight', q });
+        if (q) { this.syncDisplays(); this.broadcast('display', { type: 'spotlight', q }); }
         break;
       }
       case 'reject':
-      case 'answered': {
-        if (setStatus(action === 'reject' ? 'rejected' : 'answered')) this.broadcast('display', { type: 'remove', id });
+      case 'answered':
+        if (setStatus(action === 'reject' ? 'rejected' : 'answered')) this.syncDisplays();
         break;
-      }
-      case 'restore': setStatus('pending'); break;
+      case 'restore': if (setStatus('pending')) this.syncDisplays(); break;
       case 'delete':
         this.sql.exec('DELETE FROM questions WHERE id = ?', id);
-        this.broadcast('display', { type: 'remove', id });
+        this.syncDisplays();
         break;
-      case 'clear':                // everything still queued for the TV counts as answered
+      case 'clear':                // everything still on the TV counts as answered
         this.sql.exec("UPDATE questions SET status = 'answered' WHERE status = 'approved'");
-        this.broadcast('display', { type: 'clear' });
+        this.syncDisplays();
         break;
       case 'moderation': this.put('moderation', !!body.on); break;
       case 'focus':
         this.put('focus', !!body.on);
-        this.broadcast('display', { type: 'config', config: this.config() });
+        this.pushConfig();
         break;
+      case 'questionSecs':
+        this.put('questionSecs', Math.round(Math.min(180, Math.max(5, Number(body.secs) || DEFAULTS.questionSecs))));
+        this.pushConfig();
+        break;
+      case 'sound': {
+        const cur = this.setting('sound');
+        this.put('sound', {
+          chime: CHIMES.includes(body.chime) ? body.chime : cur.chime,
+          volume: level(body.volume, cur.volume),
+          muted: typeof body.muted === 'boolean' ? body.muted : cur.muted,
+        });
+        this.pushConfig();
+        break;
+      }
+      case 'ambience': {
+        const cur = this.setting('ambience');
+        this.put('ambience', { volume: level(body.volume, cur.volume), muted: typeof body.muted === 'boolean' ? body.muted : cur.muted });
+        this.pushConfig();
+        break;
+      }
+      case 'chroma': {
+        const cur = this.setting('chroma');
+        this.put('chroma', { on: typeof body.on === 'boolean' ? body.on : cur.on, amount: level(body.amount, cur.amount) });
+        this.pushConfig();
+        break;
+      }
+      case 'tv':                   // remote control for the backdrop's TV
+        if (!TV_COMMANDS.includes(body.cmd)) return { error: 'Unknown TV command.' };
+        this.broadcast('display', { type: 'control', cmd: body.cmd });
+        return { ok: true };
       case 'presenters': {
         const list = (Array.isArray(body.presenters) ? body.presenters : []).slice(0, 50).map((p) => ({
           id: clean(p.id, 40) || crypto.randomUUID(), name: clean(p.name, 60), title: clean(p.title, 120),
         })).filter((p) => p.name);
         this.put('presenters', list);
         if (!list.some((p) => p.id === this.setting('live'))) this.put('live', null);
-        this.broadcast('display', { type: 'config', config: this.config() });
+        this.pushConfig();
         break;
       }
       case 'live':
         this.put('live', body.id ? clean(body.id, 40) : null);
-        this.broadcast('display', { type: 'config', config: this.config() });
+        this.pushConfig();
         break;
       case 'caption':
         this.put('caption', clean(body.caption, 40).toUpperCase() || DEFAULTS.caption);
-        this.broadcast('display', { type: 'config', config: this.config() });
+        this.pushConfig();
         break;
       case 'sponsors':
         this.put('sponsors', !!body.on);
-        this.broadcast('display', { type: 'config', config: this.config() });
+        this.pushConfig();
         break;
       default:
         return { error: 'Unknown action.' };

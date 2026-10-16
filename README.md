@@ -8,14 +8,21 @@ Runs on Cloudflare: a Worker serves the site and API, and one Durable Object kee
 | Backdrop | https://backdrop.theaibuilder.school/ | Projector. Press **F** for fullscreen |
 | Form | https://backdrop.theaibuilder.school/form | Audience phones (the QR points here) |
 | Admin | https://backdrop.theaibuilder.school/admin | You. Password-protected |
+| Moderator panel | https://backdrop.theaibuilder.school/panel | Phone or tablet on stage. Same password as the admin |
 
 ## Admin page
 - **Questions**: tabs for Waiting / On the TV / Answered / Hidden / All, search, filter by presenter.
   Approve, put on the TV now, mark answered, hide, restore, delete.
   Questions containing swear words (English and Malay) are always held in Waiting, even with moderation off.
-- **Live controls**: approve-before-showing (moderation), zoom the backdrop into the TV QR, clear the TV queue.
+- **On the TV now**: what the backdrop is showing, live, plus a remote (Prev / QR / Next / Slideshow). A banner warns when the TV is stuck on manual.
+- **TV**: seconds each question stays up, the caption under the QR, partner logos on/off, chromatic aberration on/off and its strength.
+- **Sound**: new-question sound (marimba, singing bowl, ding-dong or none) with volume, mute and a Test button; campfire crackle volume and mute.
+- **Live controls**: approve-before-showing (moderation), zoom the backdrop into the TV, mark every TV question answered.
 - **Presenters**: add names and talk titles; "Put on stage" shows them under THE CAVE logo on the backdrop and on the form, and tags new questions with them.
-- **TV**: the caption under the QR. The TV shows nothing else besides the QR and audience questions.
+
+## Moderator panel
+`/panel` is for whoever reads questions out on stage: the question on the TV right now in large type (A−/A+ to resize),
+the same TV remote, the queue with Show now / Answered, and Waiting questions to approve or hide. It keeps the phone screen awake.
 
 ## Run locally
 ```
@@ -49,18 +56,19 @@ The last theme used is remembered; `/?theme=1` forces one.
 
 To add a theme: copy `firelit-cave.js`, change it, and register it in the `THEMES` list at the top of `public/js/main.js`.
 
-Shared pieces: `public/js/main.js` (renderer, keys, WebSocket to the room, ping sound) · `tv-screen.js` (what's on the TV) · `tv.js` (the TV model) · `themes/treasure.js` (the hoard) · `fire.js` (campfire) · `wall-art.js` (logo painting)
+Shared pieces: `public/js/main.js` (renderer, keys, WebSocket to the room) · `sound.js` (question chimes and the campfire crackle, synthesised with WebAudio: no audio files, nothing to license) · `beacon.js` (the alarm light) · `tv-screen.js` (what's on the TV) · `tv.js` (the TV model) · `themes/treasure.js` (the hoard) · `fire.js` (campfire) · `wall-art.js` (logo painting)
 
-The TV shows the QR code (with its caption) and nothing else until a question arrives. Then it pings, the TV jolts,
-it switches to static and types the question out (no QR while a question is up). The QR is drawn amber-on-dark to match the TV. The ping needs one key press or click
+The TV runs a slideshow: the QR code, then up to three approved questions, then a partner logo, and round again. Every approved question keeps coming
+back until it's marked answered or hidden. A new question goes up as soon as the one on screen has had its time: the chime plays and the red alarm
+beacon on top of the TV spins up. The QR is drawn amber-on-dark to match the TV. Sound needs one key press or click
 on the backdrop first (browsers block sound until then); pressing **F** for fullscreen is enough.
 The TV's glass is cracked in one corner and the cabinet is worn; a gold hoard glints under it, with a live clock on the chest. Partner logos (`public/partners.png`) take turns with the QR on the TV: the strip is split into one logo per partner wherever there is a wide transparent gap.
 From /admin you can bring any question back with **Show again**.
 
-**Backdrop keys:** `1`–`9` theme · `F` fullscreen · `Q` camera zooms in/out of the TV (shows whatever is on it) · `C` chromatic aberration on/off (remembered; eases off while zoomed into the TV) · `P` FPS meter
+**Backdrop keys:** `1`–`9` theme · `F` fullscreen · `Q` camera zooms in/out of the TV (shows whatever is on it) · `C` chromatic aberration on/off on this screen (the admin setting wins on its next change; eases off while zoomed into the TV) · `P` FPS meter
 
-**TV keys:** `→` next question (waiting ones first, then forward through those already shown) · `←` previous question · `↑` show the QR · `↓` back to automatic.
-After any arrow key the TV holds what you picked; new questions still ping and wait until you press `→` (or `↓` to let them play automatically).
+**TV keys** (also on the admin and panel remote): `→` next question (new ones first) · `←` previous question · `↑` show the QR · `↓` back to the slideshow.
+After any arrow key the TV is on manual and holds what you picked; new questions still sound and wait. Press `↓` (or Slideshow) to go back to automatic.
 
 **Performance:** open the backdrop in Chrome/Edge with hardware acceleration on. Press **P** for an FPS meter.
 The scene renders at 1x pixel ratio with MSAA, merges static rock/TV/campfire parts into a few draw calls, draws the sun shadow once, and fakes the water's light (glints from the opening, fire and TV off the ripples) instead of rendering a mirror reflection.

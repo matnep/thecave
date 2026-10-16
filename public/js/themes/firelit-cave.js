@@ -15,6 +15,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { floatingLogo, grainCanvas } from '../wall-art.js';
 import { makeTV } from '../tv.js';
+import { makeBeacon } from '../beacon.js';
 import { makeFire } from '../fire.js';
 import { createLife } from './cave-life.js';
 import { makeTreasure } from './treasure.js';
@@ -652,7 +653,11 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
   tv.position.set(TV_AT.x, TV_AT.y + .52, TV_AT.z);
   tv.rotation.y = -.45;
   scene.add(tv);
-  const TV_BASE = tv.position.clone();
+  // alarm beacon on the cabinet's top-left corner, clear of the rabbit ears
+  const beacon = makeBeacon();
+  beacon.group.position.set(-.62, 2.03, .12);
+  beacon.group.scale.setScalar(1.4);
+  tv.add(beacon.group);
 
   // the hoard heaped in front of and under the TV
   scene.updateMatrixWorld(true);
@@ -741,18 +746,18 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
   let zoomFrom = 0, zoomTo = 0, zoomAge = 9;
   const ZOOM_SECS = 1.8;
   const easeInOut = (x) => (x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2);
-  let shake = 0;           // 1 = a question just landed; decays to 0
   let t = 0;
   const born = performance.now();
 
   return {
-    // TV switched slides: burst of static
-    onSwitch(item) { staticAge = 0; staticPeak = item.kind === 'question' ? .85 : .6; },
+    // TV switched slides: a brief flicker of static (kept faint: a full burst is dizzying when zoomed in)
+    onSwitch(item) { staticAge = 0; staticPeak = item.kind === 'question' ? .22 : .15; },
 
-    // new question: the TV jolts and its light flares
-    onQuestion() { shake = 1; },
+    // new question: the alarm beacon on the TV spins up
+    onQuestion() { beacon.trigger(); },
 
-    setChromatic(on) { chromaWant = on ? 1 : 0; },
+    // amount 0..1 from the admin; .6 is the classic look
+    setChromatic(on, amount = .6) { chromaWant = on ? amount / .6 : 0; },
 
     setPresenter(p) {
       const key = p ? `${p.name}|${p.title || ''}` : null;
@@ -781,17 +786,12 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
 
       // TV
       staticAge += dt;
-      const staticAmt = staticEnv() * staticPeak;
+      const staticAmt = staticEnv() * staticPeak * (1 - focus * .6);
       screenMat.uniforms.uTime.value = t;
       screenMat.uniforms.uStatic.value = staticAmt;
       screenMat.uniforms.uFocus.value = focus;
-      tvLight.intensity = (2.2 + staticAmt * 3 + (tvScreen.isLive ? .8 : 0) + shake * 7) * ig;
-      // shake: a quick jolt that settles
-      shake = Math.max(0, shake - dt * .85);
-      const sk = shake * shake;
-      tv.position.set(TV_BASE.x + Math.sin(t * 58) * .11 * sk, TV_BASE.y + Math.abs(Math.sin(t * 41)) * .13 * sk, TV_BASE.z + Math.sin(t * 47 + 1) * .05 * sk);
-      tv.rotation.z = Math.sin(t * 52) * .08 * sk;
-      tv.rotation.y = -.45 + Math.sin(t * 37) * .05 * sk;
+      tvLight.intensity = (2.2 + staticAmt * 1.5 + (tvScreen.isLive ? .8 : 0)) * ig;
+      beacon.update(dt, t);
       treasure.update(t);
       presenterFade += (presenterWant - presenterFade) * Math.min(1, dt * 4);
       presenterMat.opacity = presenterFade;

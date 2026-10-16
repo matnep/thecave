@@ -1,20 +1,20 @@
 // What's on the TV. Draws onto a 1024x768 canvas that the 3D scene uses as the CRT texture.
 // Three things show: the QR code (with one caption line), partner logos and audience questions.
-// Automatic: questions queue up; each is typed out, held, then the TV goes back to the QR.
-// With nothing queued the QR takes turns with the partner logos, one logo at a time (QR, logo 1, QR, logo 2…).
-// Manual (presenter keys): → next question, ← previous, ↑ the QR, ↓ back to automatic.
-// While manual, whatever was picked stays up; new questions still ping and wait in the queue.
+// Automatic (a slideshow): new questions go up straight away; otherwise the TV cycles
+//   QR → up to QS_PER_ROUND approved questions → one partner logo → QR …
+// so every approved question keeps coming back until it's marked answered or hidden in the admin.
+// Manual (presenter keys / admin remote): → next question, ← previous, ↑ the QR, ↓ back to the slideshow.
+// While manual, whatever was picked stays up; new questions still sound the alarm and wait their turn.
 // Switching content waits for the static burst to peak (SWAP_MS) so the change is hidden in the noise.
 
 const W = 1024, H = 768;
 const AMBER = '#ffb238';
 const MX = 78;   // safe margin inside the curved glass
-const QUESTION_MS = 15000;
 const TYPE_CPS = 38;
 const SWAP_MS = 140;
-const HISTORY = 200;
+const QS_PER_ROUND = 3;         // questions between two QR codes in the slideshow
 const QR_SIZE = 500;   // leaves room for a big, readable caption underneath
-const QR_HOLD_MS = 16000;       // QR between partner logos
+const QR_HOLD_MS = 14000;       // QR between rounds
 const PARTNER_MS = 6500;        // each partner logo
 const PARTNER_GAP = 24;         // empty columns that separate two partners in partners.png
 
@@ -88,14 +88,17 @@ export class TVScreen {
     strip.onload = () => { this.partners = splitPartners(strip); };
     strip.src = '/partners.png';
     this.onSwitch = () => {};       // content is about to change (start the static burst)
-    this.onQuestion = () => {};     // a new question just arrived (ping + shake)
-    this.queue = [];                // waiting to be shown
-    this.history = [];              // already shown, oldest first
-    this.idx = -1;                  // position in history while showing a question
+    this.onQuestion = () => {};     // a new question just arrived (sound + alarm light)
+    this.onStatus = () => {};       // what's showing changed (reported to the admin and moderator panel)
+    this.approved = [];             // every question cleared for the TV, oldest first (from the server)
+    this.fresh = [];                // ids that arrived but haven't been shown yet
+    this.rot = 0;                   // slideshow position in `approved`
+    this.sinceQr = 0;               // questions shown since the QR was last up
     this.manual = false;
     this.current = null;
     this.pending = null;            // what's about to replace current, mid-static
     this.caption = 'SCAN TO ASK A QUESTION';
+    this.questionMs = 25000;        // admin setting: how long a question stays up once typed out
     this.focus = false;             // camera zoom only; doesn't change what's on the TV
     this.timer = null;
     this.swapTimer = null;
@@ -104,102 +107,136 @@ export class TVScreen {
     this.lastTyped = -1;
   }
 
+  get showing() { return this.pending || this.current; }
+  indexOf(id) { return this.approved.findIndex((q) => q.id === id); }
+  takeFresh() {
+    while (this.fresh.length) {
+      const q = this.approved[this.indexOf(this.fresh.shift())];
+      if (q) return q;
+    }
+    return null;
+  }
+
   // ---------- running order ----------
   start() { this.next(); }
 
-  // automatic flow
+  // the slideshow: decide what follows whatever is up now
   next() {
     clearTimeout(this.timer);
     if (this.manual) return;
-    if (this.queue.length) return this.showQuestion(this.queue.shift());
+    const q = this.takeFresh();
+    if (q) return this.showQuestion(q);
+    const kind = this.showing?.kind;
+    const n = this.approved.length;
+    if (kind === 'qr' && n) return this.showQuestion(this.approved[this.rot % n]);
+    if (kind === 'question' && n && this.sinceQr < Math.min(QS_PER_ROUND, n)) return this.showQuestion(this.approved[this.rot % n]);
+    if ((kind === 'qr' || kind === 'question') && this.sponsors && this.partners.length) return this.showPartner();
     this.showQr();
   }
 
   showQr() {
     clearTimeout(this.timer);
-    if ((this.pending || this.current)?.kind !== 'qr') this.show({ kind: 'qr' });
-    if (!this.manual) this.timer = setTimeout(() => this.showPartner(), QR_HOLD_MS);
+    this.sinceQr = 0;
+    this.show({ kind: 'qr' });
+    if (!this.manual) this.timer = setTimeout(() => this.next(), QR_HOLD_MS);
   }
 
-  // the next partner's turn, then back to the QR (or to a question that arrived meanwhile)
   showPartner() {
-    clearTimeout(this.timer);
-    if (this.manual || !this.sponsors || !this.partners.length) return this.showQr();
     const i = this.partnerAt++ % this.partners.length;
     this.show({ kind: 'partner', i });
     this.timer = setTimeout(() => this.next(), PARTNER_MS);
   }
 
-  showQuestion(m, { replay = false } = {}) {
+  showQuestion(m, { instant = false } = {}) {
     clearTimeout(this.timer);
-    if (!replay) {
-      this.history = this.history.filter((q) => q.id !== m.id);
-      this.history.push(m);
-      if (this.history.length > HISTORY) this.history.shift();
-    }
-    this.idx = this.history.findIndex((q) => q.id === m.id);
-    this.show({ kind: 'question', m, instant: replay });
-    if (!this.manual) this.timer = setTimeout(() => this.next(), QUESTION_MS + m.text.length * 25 + SWAP_MS);
+    this.fresh = this.fresh.filter((id) => id !== m.id);
+    const i = this.indexOf(m.id);
+    if (i >= 0) this.rot = i + 1;      // the slideshow carries on after this one
+    this.sinceQr++;
+    this.show({ kind: 'question', m, instant });
+    if (!this.manual) this.timer = setTimeout(() => this.next(), this.questionMs + (m.text.length / TYPE_CPS) * 1000 + SWAP_MS + 400);
   }
 
   show(item) {
+    const was = this.showing;
+    if (was && was.kind === item.kind && was.i === item.i && was.m?.id === item.m?.id) return;   // already up
     this.onSwitch(item);
     clearTimeout(this.swapTimer);
     this.pending = item;
     this.swapTimer = setTimeout(() => {
       this.pending = null;
-      // a replayed question appears already typed out
+      // a question the presenter steps back to appears already typed out
       this.current = { ...item, at: performance.now() - (item.instant ? 1e6 : 0) };
       this.dirty = true;
+      this.report();
     }, SWAP_MS);
   }
 
-  enqueue(m) {
-    this.queue.push(m);
-    this.onQuestion(m);
-    if (!this.manual && (this.pending || this.current)?.kind !== 'question') this.next();
+  report() {
+    const c = this.current;
+    this.onStatus({ kind: c?.kind || null, id: c?.m?.id ?? null, manual: this.manual });
+  }
+
+  // the server's list of questions cleared for the TV (sent on connect and after every change)
+  setApproved(list) {
+    this.approved = list.slice().sort((a, b) => a.id - b.id);
+    this.fresh = this.fresh.filter((id) => this.indexOf(id) >= 0);
+    const up = this.showing;
+    if (up?.kind !== 'question') return;
+    const now = this.approved[this.indexOf(up.m.id)];
+    if (!now) this.manual ? this.showQr() : this.next();     // answered, hidden or deleted
+    else if (now.text !== up.m.text || now.name !== up.m.name) { up.m = now; this.dirty = true; }
+  }
+
+  // a question just arrived: sound + light now, on screen as soon as it's its turn
+  arrive(q) {
+    if (this.indexOf(q.id) < 0) this.approved = [...this.approved, q].sort((a, b) => a.id - b.id);
+    if (!this.fresh.includes(q.id)) this.fresh.push(q.id);
+    this.onQuestion(q);
+    if (!this.manual && this.showing?.kind !== 'question') this.next();
   }
   // admin "put on TV now": always shows straight away
-  spotlight(m) {
-    this.queue = this.queue.filter((q) => q.id !== m.id);
-    this.onQuestion(m);
-    this.showQuestion(m);
-  }
-  remove(id) {
-    this.queue = this.queue.filter((q) => q.id !== id);
-    this.history = this.history.filter((q) => q.id !== id);
-    if ((this.pending || this.current)?.m?.id === id) this.manual ? this.show({ kind: 'qr' }) : this.next();
-  }
-  clear() {
-    this.queue = [];
-    if (!this.manual && (this.pending || this.current)?.kind === 'question') this.next();
+  spotlight(q) {
+    if (this.indexOf(q.id) < 0) this.approved = [...this.approved, q].sort((a, b) => a.id - b.id);
+    this.onQuestion(q);
+    this.showQuestion(q);
   }
   setFocus(on) { this.focus = on; }
-  setConfig({ caption, sponsors } = {}) {
+  setConfig({ caption, sponsors, questionSecs } = {}) {
     if (typeof caption === 'string' && caption.trim()) this.caption = caption.trim().toUpperCase();
+    if (typeof questionSecs === 'number') this.questionMs = questionSecs * 1000;
     if (typeof sponsors === 'boolean') {
       this.sponsors = sponsors;
-      if (!sponsors && (this.pending || this.current)?.kind === 'partner') this.next();
+      if (!sponsors && this.showing?.kind === 'partner') this.next();
     }
     this.dirty = true;
   }
 
-  // ---------- presenter keys ----------
+  // ---------- presenter keys / admin remote ----------
   right() {
-    this.manual = true;
-    if (this.queue.length) return this.showQuestion(this.queue.shift());
-    const showingQ = (this.pending || this.current)?.kind === 'question';
-    const i = showingQ ? this.idx + 1 : this.history.length - 1;   // from the QR, → brings back the latest
-    if (i >= 0 && i < this.history.length && !(showingQ && i === this.idx)) this.showQuestion(this.history[i], { replay: true });
+    this.setManual(true);
+    const q = this.takeFresh();                 // anything not seen yet comes first
+    if (q) return this.showQuestion(q);
+    if (!this.approved.length) return;
+    const up = this.showing;
+    const i = up?.kind === 'question' ? this.indexOf(up.m.id) + 1 : this.approved.length - 1;   // from the QR, → brings back the latest
+    if (i >= 0 && i < this.approved.length) this.showQuestion(this.approved[i], { instant: true });
   }
   left() {
-    this.manual = true;
-    const showingQ = (this.pending || this.current)?.kind === 'question';
-    const i = showingQ ? this.idx - 1 : this.history.length - 1;
-    if (i >= 0) this.showQuestion(this.history[i], { replay: true });
+    this.setManual(true);
+    if (!this.approved.length) return;
+    const up = this.showing;
+    const i = up?.kind === 'question' ? this.indexOf(up.m.id) - 1 : this.approved.length - 1;
+    if (i >= 0) this.showQuestion(this.approved[i], { instant: true });
   }
-  up() { this.manual = true; this.showQr(); }
-  auto() { this.manual = false; this.next(); }
+  up() { this.setManual(true); this.showQr(); }
+  auto() { this.setManual(false); this.next(); }
+  setManual(on) {
+    if (this.manual === on) return;
+    this.manual = on;
+    clearTimeout(this.timer);
+    this.report();
+  }
 
   get isLive() { return this.current?.kind === 'question'; }
 

@@ -2,10 +2,12 @@
 // Owns the renderer, the TV's content (questions/QR), the live connection and the keyboard,
 // and swaps between themes. Each theme lives in ./themes/ and exports `create()`; see firelit-cave.js.
 //
-// Keys:  1–9 switch theme · F fullscreen · Q camera in/out of the TV · P FPS meter · C chromatic aberration
-//        → next question · ← previous question · ↑ show the QR · ↓ back to automatic
+// Keys:  1–9 switch theme · F fullscreen · Q camera in/out of the TV · P FPS meter · C chromatic aberration (this screen only)
+//        → next question · ← previous question · ↑ show the QR · ↓ back to the slideshow
+// Sound, fire ambience, chromatic aberration and question timing come from the admin page.
 import * as THREE from 'three';
 import { TVScreen } from './tv-screen.js';
+import * as sound from './sound.js';
 
 // number key → theme module. Add new themes here.
 const THEMES = {
@@ -27,34 +29,18 @@ document.body.appendChild(renderer.domElement);
 // the TV's content is shared, so a queued question survives a theme switch
 const tvScreen = new TVScreen();
 let presenter = null;
-let chromatic = localStorage.getItem('cave-chroma') === '1';   // C toggles; remembered   // who's on stage; each theme shows it its own way
+let chroma = { on: false, amount: .6 };   // from the admin; C flips it on this screen until the admin changes it
+let soundCfg = { chime: 'marimba', volume: .6, muted: false };
+let ambience = { volume: .35, muted: false };
 
-// ---- new-question ping, synthesised (no audio file). Browsers only allow sound after a key press or click,
-// so the context unlocks on the first one (pressing F for fullscreen is enough).
-let audio = null;
-const unlockAudio = () => { audio = audio || new AudioContext(); if (audio.state === 'suspended') audio.resume(); };
+// ---- sound: synthesised in sound.js. Browsers only allow audio after a key press or click,
+// so it unlocks on the first one (pressing F for fullscreen is enough).
+const unlockAudio = () => { sound.unlock(); applyAmbience(); };
 addEventListener('keydown', unlockAudio);
 addEventListener('pointerdown', unlockAudio);
-function ping() {
-  if (!audio || audio.state !== 'running') return;
-  const t = audio.currentTime;
-  const out = audio.createGain();
-  out.gain.value = .35;
-  out.connect(audio.destination);
-  // two bell-like partials with a soft attack and a long tail
-  for (const [freq, delay, level] of [[1318.5, 0, 1], [1975.5, .09, .6], [2637, .09, .25]]) {
-    const o = audio.createOscillator(), g = audio.createGain();
-    o.type = 'sine';
-    o.frequency.value = freq;
-    g.gain.setValueAtTime(0, t + delay);
-    g.gain.linearRampToValueAtTime(level, t + delay + .01);
-    g.gain.exponentialRampToValueAtTime(.0001, t + delay + 1.4);
-    o.connect(g).connect(out);
-    o.start(t + delay);
-    o.stop(t + delay + 1.5);
-  }
-}
-tvScreen.onQuestion = () => { ping(); theme?.onQuestion?.(); };
+const applyAmbience = () => sound.setFire(ambience.muted ? 0 : ambience.volume);
+const playChime = () => { if (!soundCfg.muted) sound.chime(soundCfg.chime, soundCfg.volume); };
+tvScreen.onQuestion = () => { playChime(); theme?.onQuestion?.(); };
 const screenTex = new THREE.CanvasTexture(tvScreen.canvas);
 screenTex.colorSpace = THREE.SRGBColorSpace;
 screenTex.anisotropy = 8;
@@ -85,7 +71,7 @@ async function loadTheme(n) {
     if (tier >= 3) theme.degrade();
     tvScreen.onSwitch = (item) => theme.onSwitch(item);
     theme.setPresenter?.(presenter);
-    theme.setChromatic?.(chromatic);
+    theme.setChromatic?.(chroma.on, chroma.amount);
     localStorage.setItem('cave-theme', String(n));
     window.__cave = { theme, themeNum, tvScreen, renderer, ...theme.debug };
   } catch (err) {
@@ -150,29 +136,43 @@ requestAnimationFrame(frame);
 // ============================================================ live connection
 // WebSocket to the room; reconnects with backoff if the network blips.
 const status = document.getElementById('status');
-let started = false, retry = 0;
+let started = false, retry = 0, ws = null;
+// tell the room what's on the TV, so the admin and the moderator panel can follow along
+const sendStatus = (st) => { if (ws?.readyState === 1) ws.send(JSON.stringify({ type: 'status', ...st })); };
+tvScreen.onStatus = sendStatus;
 function connect() {
-  const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/api/ws?role=display`);
+  ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/api/ws?role=display`);
   let ping;
   ws.onopen = () => {
     retry = 0;
     status.classList.remove('show');
     ping = setInterval(() => ws.readyState === 1 && ws.send('ping'), 25000);
+    tvScreen.report();
   };
   ws.onmessage = (ev) => {
     if (ev.data === 'pong') return;
     const msg = JSON.parse(ev.data);
     if (msg.type === 'init' || msg.type === 'config') {
-      tvScreen.setConfig(msg.config);
-      presenter = msg.config.presenter || null;
+      const c = msg.config;
+      tvScreen.setConfig(c);
+      presenter = c.presenter || null;
       theme?.setPresenter?.(presenter);
-      tvScreen.setFocus(!!msg.config.focus);
-      if (!started) { started = true; tvScreen.start(); }
+      tvScreen.setFocus(!!c.focus);
+      if (c.sound) soundCfg = c.sound;
+      if (c.ambience) { ambience = c.ambience; applyAmbience(); }
+      if (c.chroma) { chroma = c.chroma; theme?.setChromatic?.(chroma.on, chroma.amount); }
     }
-    if (msg.type === 'message') tvScreen.enqueue(msg.q);
+    if (msg.type === 'init' || msg.type === 'approved') tvScreen.setApproved(msg.approved || msg.list || []);
+    if (msg.type === 'init' && !started) { started = true; tvScreen.start(); }
+    if (msg.type === 'message') tvScreen.arrive(msg.q);
     if (msg.type === 'spotlight') tvScreen.spotlight(msg.q);
-    if (msg.type === 'remove') tvScreen.remove(msg.id);
-    if (msg.type === 'clear') tvScreen.clear();
+    if (msg.type === 'control') {
+      if (msg.cmd === 'next') tvScreen.right();
+      if (msg.cmd === 'prev') tvScreen.left();
+      if (msg.cmd === 'qr') tvScreen.up();
+      if (msg.cmd === 'auto') tvScreen.auto();
+      if (msg.cmd === 'test') { playChime(); theme?.onQuestion?.(); }
+    }
   };
   ws.onclose = () => {
     clearInterval(ping);
@@ -191,10 +191,9 @@ addEventListener('keydown', (ev) => {
   if (k === 'f') document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
   if (k === 'p') fpsEl.style.display = fpsEl.style.display === 'none' ? 'block' : 'none';
   if (k === 'c') {
-    chromatic = !chromatic;
-    localStorage.setItem('cave-chroma', chromatic ? '1' : '0');
-    theme?.setChromatic?.(chromatic);
-    say(chromatic ? 'Chromatic aberration on' : 'Chromatic aberration off');
+    chroma = { ...chroma, on: !chroma.on };
+    theme?.setChromatic?.(chroma.on, chroma.amount);
+    say(chroma.on ? 'Chromatic aberration on' : 'Chromatic aberration off');
   }
   if (k === 'q') tvScreen.setFocus(!tvScreen.focus);
   if (k === 'arrowright') { ev.preventDefault(); tvScreen.right(); }

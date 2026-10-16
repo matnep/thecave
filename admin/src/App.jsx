@@ -1,10 +1,9 @@
-// The Cave admin: moderate questions, run the TV and set who's on stage.
+// The Cave admin: moderate questions, run the TV, sound and effects, and set who's on stage.
 // Live state arrives over a WebSocket (role=admin); every change is a POST to /api/admin/<action>.
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { toast } from 'sonner';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Check, Clock, ExternalLink, EyeOff, Flag, LogOut, MonitorPlay, Plus, QrCode, RotateCcw, Search,
-  Trash2, Tv, Undo2, UserRound, X,
+  BellRing, Check, Clock, ExternalLink, EyeOff, Flag, Flame, LogOut, MonitorPlay, Plus, QrCode, RotateCcw, Search,
+  Smartphone, Trash2, Tv, Undo2, UserRound, Volume2, VolumeX, X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -12,116 +11,32 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
+import { Slider } from '@/components/ui/slider';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import {
-  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
-  AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
-} from '@/components/ui/alert-dialog';
 import { Toaster } from '@/components/ui/sonner';
 import { cn } from '@/lib/utils';
-
-class SignedOut extends Error {}
-
-async function post(path, body) {
-  const r = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body || {}) });
-  if (r.status === 401 && path !== '/api/login') throw new SignedOut();
-  const d = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(d.error || 'Request failed');
-  return d;
-}
+import {
+  Brand, Confirm, LiveBadge, Login, SwitchRow, TvRemote, post, tvSummary, useAct, useAuth, useRoom,
+} from '@/shared';
 
 export default function App() {
-  const [auth, setAuth] = useState('checking');   // checking | out | in
-  useEffect(() => {
-    post('/api/admin/ping').then(() => setAuth('in')).catch(() => setAuth('out'));
-  }, []);
+  const { auth, signIn, signOut } = useAuth();
   return (
     <>
-      {auth === 'out' && <Login onIn={() => setAuth('in')} />}
-      {auth === 'in' && <Dashboard onOut={() => setAuth('out')} />}
+      {auth === 'out' && <Login onIn={signIn} />}
+      {auth === 'in' && <Dashboard onOut={signOut} />}
       <Toaster position="top-center" richColors closeButton />
     </>
   );
 }
 
-function Brand({ className }) {
-  return (
-    <div className={cn('flex items-center gap-3', className)}>
-      <img src="/logo.png" alt="The Cave" className="h-8 w-auto object-contain drop-shadow-[0_0_12px_rgba(255,170,60,.35)]" />
-      <span className="text-[11px] uppercase tracking-[.25em] text-muted-foreground">Admin</span>
-    </div>
-  );
-}
-
-// ------------------------------------------------------------------ sign in
-function Login({ onIn }) {
-  const [pw, setPw] = useState('');
-  const [err, setErr] = useState('');
-  const [busy, setBusy] = useState(false);
-  const submit = async (e) => {
-    e.preventDefault();
-    setBusy(true); setErr('');
-    try { await post('/api/login', { password: pw }); onIn(); }
-    catch (e) { setErr(e.message); }
-    finally { setBusy(false); setPw(''); }
-  };
-  return (
-    <main className="grid min-h-svh place-items-center p-4">
-      <Card className="w-full max-w-sm">
-        <CardHeader className="items-center text-center">
-          <Brand className="justify-center" />
-          <CardDescription className="pt-2">Sign in to run the backdrop.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={submit} className="grid gap-3">
-            <Label htmlFor="pw">Password</Label>
-            <Input id="pw" type="password" autoComplete="current-password" autoFocus required value={pw} onChange={(e) => setPw(e.target.value)} />
-            <Button disabled={busy} className="mt-1">{busy ? 'Signing in…' : 'Sign in'}</Button>
-            <p className="min-h-5 text-sm text-destructive" role="alert">{err}</p>
-          </form>
-        </CardContent>
-      </Card>
-    </main>
-  );
-}
-
-// ------------------------------------------------------------------ live state
-function useRoom(onOut) {
-  const [state, setState] = useState(null);
-  const [live, setLive] = useState(false);
-  useEffect(() => {
-    let ws, ping, retry, closed = false;
-    const connect = () => {
-      ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/api/ws?role=admin`);
-      ws.onopen = () => { setLive(true); ping = setInterval(() => ws.readyState === 1 && ws.send('ping'), 25000); };
-      ws.onmessage = (ev) => {
-        if (ev.data === 'pong') return;
-        const msg = JSON.parse(ev.data);
-        if (msg.type === 'state') setState(msg);
-      };
-      ws.onclose = () => {
-        clearInterval(ping); setLive(false);
-        if (!closed) retry = setTimeout(probe, 1500);
-      };
-    };
-    // a refused upgrade looks like a plain close; check we're still signed in before retrying
-    const probe = () => post('/api/admin/ping').then(connect).catch((e) => (e instanceof SignedOut ? onOut() : connect()));
-    connect();
-    return () => { closed = true; clearTimeout(retry); clearInterval(ping); ws?.close(); };
-  }, [onOut]);
-  return { state, live };
-}
+const Title = ({ children }) => <CardTitle className="font-display text-lg font-normal tracking-wider">{children}</CardTitle>;
 
 function Dashboard({ onOut }) {
   const { state, live } = useRoom(onOut);
-  const act = useCallback(async (action, body, ok) => {
-    try { await post('/api/admin/' + action, body); if (ok) toast.success(ok); return true; }
-    catch (e) { if (e instanceof SignedOut) onOut(); else toast.error(e.message); return false; }
-  }, [onOut]);
+  const act = useAct(onOut);
   const signOut = async () => { await post('/api/logout').catch(() => {}); onOut(); };
-
   const formUrl = state?.formUrl && state.formUrl !== '/form' ? state.formUrl : `${location.origin}/form`;
 
   return (
@@ -129,13 +44,13 @@ function Dashboard({ onOut }) {
       <header className="sticky top-0 z-20 border-b bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <div className="mx-auto flex max-w-7xl items-center gap-3 px-4 py-3 sm:px-6">
           <Brand />
-          <Badge variant="outline" className={cn('ml-1 gap-1.5', live ? 'text-success' : 'text-muted-foreground')}>
-            <span className={cn('size-2 rounded-full', live ? 'bg-success animate-pulse' : 'bg-destructive')} />
-            {live ? 'Live' : 'Reconnecting'}
-          </Badge>
+          <LiveBadge live={live} />
           <div className="ml-auto flex items-center gap-1">
             <Button variant="ghost" size="sm" asChild>
-              <a href={formUrl} target="_blank" rel="noopener"><QrCode /><span className="hidden md:inline">{formUrl.replace(/^https?:\/\//, '')}</span></a>
+              <a href={formUrl} target="_blank" rel="noopener"><QrCode /><span className="hidden lg:inline">{formUrl.replace(/^https?:\/\//, '')}</span></a>
+            </Button>
+            <Button variant="ghost" size="sm" asChild>
+              <a href="/panel" target="_blank" rel="noopener"><Smartphone /><span className="hidden sm:inline">Panel</span></a>
             </Button>
             <Button variant="ghost" size="sm" asChild>
               <a href="/" target="_blank" rel="noopener"><MonitorPlay /><span className="hidden sm:inline">Backdrop</span></a>
@@ -149,15 +64,45 @@ function Dashboard({ onOut }) {
         <p className="p-10 text-center text-muted-foreground">Connecting…</p>
       ) : (
         <main className="mx-auto grid max-w-7xl grid-cols-[minmax(0,1fr)] gap-4 p-4 sm:gap-6 sm:p-6 lg:grid-cols-[minmax(0,1.6fr)_minmax(340px,1fr)] lg:items-start">
-          <Questions state={state} act={act} />
           <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4 sm:gap-6">
+            <NowOnTv state={state} act={act} />
+            <Questions state={state} act={act} />
+          </div>
+          <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4 sm:gap-6">
+            <TvCard settings={state.settings} act={act} />
+            <SoundCard settings={state.settings} act={act} />
             <LiveControls settings={state.settings} act={act} />
             <Presenters settings={state.settings} act={act} />
-            <TvCard settings={state.settings} act={act} />
           </div>
         </main>
       )}
     </div>
+  );
+}
+
+// ------------------------------------------------------------------ what's on the TV
+function NowOnTv({ state, act }) {
+  const { label, q, tv } = tvSummary(state);
+  return (
+    <Card className="gap-4">
+      <CardHeader>
+        <div className="flex items-center justify-between gap-3">
+          <Title>ON THE TV NOW</Title>
+          {tv?.kind && <Badge variant={tv.manual ? 'default' : 'secondary'}>{tv.manual ? 'Manual' : 'Slideshow'}</Badge>}
+        </div>
+      </CardHeader>
+      <CardContent className="grid gap-4">
+        <div className="rounded-lg border bg-black/30 p-4">
+          {q ? (
+            <>
+              <p className="text-lg leading-snug break-words">“{q.text}”</p>
+              <p className="mt-2 text-sm text-muted-foreground">— {q.name || 'anonymous'}</p>
+            </>
+          ) : <p className="text-muted-foreground">{label}</p>}
+        </div>
+        <TvRemote state={state} act={act} />
+      </CardContent>
+    </Card>
   );
 }
 
@@ -182,8 +127,8 @@ function Questions({ state, act }) {
   return (
     <Card className="gap-4">
       <CardHeader>
-        <CardTitle className="font-display text-lg font-normal tracking-wider">QUESTIONS</CardTitle>
-        <CardDescription>Approve what goes on the TV, or put one up right now.</CardDescription>
+        <Title>QUESTIONS</Title>
+        <CardDescription>Everything under “On the TV” rotates on the backdrop until you mark it answered or hide it.</CardDescription>
       </CardHeader>
       <CardContent className="grid grid-cols-[minmax(0,1fr)] gap-3">
         <Tabs value={tab} onValueChange={setTab} className="min-w-0">
@@ -212,7 +157,7 @@ function Questions({ state, act }) {
           </Select>
         </div>
         <div className="grid gap-2">
-          {rows.length ? rows.map((q) => <Question key={q.id} q={q} showStatus={tab === 'all'} act={act} />)
+          {rows.length ? rows.map((q) => <Question key={q.id} q={q} onTv={state.tv?.kind === 'question' && state.tv.id === q.id} showStatus={tab === 'all'} act={act} />)
             : <p className="rounded-lg border border-dashed py-10 text-center text-sm text-muted-foreground">Nothing here.</p>}
         </div>
       </CardContent>
@@ -220,15 +165,16 @@ function Questions({ state, act }) {
   );
 }
 
-function Question({ q, showStatus, act }) {
+function Question({ q, onTv, showStatus, act }) {
   const go = (action, ok) => act(action, { id: q.id }, ok);
   const time = new Date(q.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   const btn = 'flex-1 sm:flex-none';
   return (
-    <div className={cn('rounded-lg border bg-muted/40 p-3 transition-colors hover:bg-muted/70', q.flagged && 'border-destructive/50')}>
+    <div className={cn('rounded-lg border bg-muted/40 p-3 transition-colors hover:bg-muted/70', q.flagged && 'border-destructive/50', onTv && 'border-primary/70 bg-primary/5')}>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
         <div className="min-w-0 flex-1">
           <p className="text-[15px] leading-snug break-words">
+            {onTv && <Badge className="mr-1.5 align-middle"><Tv />on screen</Badge>}
             {!!q.flagged && <Badge variant="destructive" className="mr-1.5 align-middle"><Flag />flagged</Badge>}
             {q.text}
           </p>
@@ -252,10 +198,7 @@ function Question({ q, showStatus, act }) {
           </>}
           {q.status === 'answered' && <Button size="sm" variant="secondary" className={btn} onClick={() => go('spotlight', 'On the TV now')}><RotateCcw />Show again</Button>}
           {q.status === 'rejected' && <Button size="sm" variant="secondary" className={btn} onClick={() => go('restore')}><Undo2 />Back to waiting</Button>}
-          <Confirm
-            title="Delete this question?" body="It's removed for good, including from the TV." action="Delete"
-            onConfirm={() => go('delete', 'Deleted')}
-          >
+          <Confirm title="Delete this question?" body="It's removed for good, including from the TV." action="Delete" onConfirm={() => go('delete', 'Deleted')}>
             <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive" aria-label="Delete"><Trash2 /></Button>
           </Confirm>
         </div>
@@ -264,34 +207,97 @@ function Question({ q, showStatus, act }) {
   );
 }
 
-function Confirm({ children, title, body, action, onConfirm }) {
+// ------------------------------------------------------------------ controls
+// a slider that moves freely while dragging and saves when let go
+function Level({ id, label, icon: Icon, value, min = 0, max = 1, step = .05, format, onCommit, muted, onMute, disabled }) {
+  const [v, setV] = useState(value);
+  const dragging = useRef(false);
+  useEffect(() => { if (!dragging.current) setV(value); }, [value]);
   return (
-    <AlertDialog>
-      <AlertDialogTrigger asChild>{children}</AlertDialogTrigger>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>{title}</AlertDialogTitle>
-          <AlertDialogDescription>{body}</AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
-          <AlertDialogAction className="bg-destructive text-white hover:bg-destructive/90" onClick={onConfirm}>{action}</AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+    <div className="grid gap-2">
+      <div className="flex items-center justify-between gap-3">
+        <Label htmlFor={id} className="flex items-center gap-2">{Icon && <Icon className="size-4 text-muted-foreground" />}{label}</Label>
+        <div className="flex items-center gap-1">
+          <span className="w-12 text-right text-sm tabular-nums text-muted-foreground">{format ? format(v) : v}</span>
+          {onMute && (
+            <Button variant={muted ? 'default' : 'ghost'} size="icon" className="size-8" onClick={() => onMute(!muted)} aria-label={muted ? 'Unmute' : 'Mute'}>
+              {muted ? <VolumeX /> : <Volume2 />}
+            </Button>
+          )}
+        </div>
+      </div>
+      <Slider id={id} min={min} max={max} step={step} value={[v]} disabled={disabled || muted}
+        onValueChange={([x]) => { dragging.current = true; setV(x); }}
+        onValueCommit={([x]) => { dragging.current = false; onCommit(x); }} />
+    </div>
+  );
+}
+const pct = (x) => `${Math.round(x * 100)}%`;
+
+function TvCard({ settings: s, act }) {
+  const [caption, setCaption] = useState(s.caption);
+  const dirty = useRef(false);
+  useEffect(() => { if (!dirty.current) setCaption(s.caption); }, [s.caption]);
+  const save = async (e) => {
+    e.preventDefault();
+    if (await act('caption', { caption }, 'Caption saved')) dirty.current = false;
+  };
+  return (
+    <Card className="gap-4">
+      <CardHeader>
+        <Title>TV</Title>
+        <CardDescription>The slideshow: QR code, then up to three questions, then a partner logo, and round again.</CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-5">
+        <Level id="secs" label="Each question stays up" icon={Clock} value={s.questionSecs} min={5} max={120} step={5}
+          format={(x) => `${x}s`} onCommit={(secs) => act('questionSecs', { secs })} />
+        <form onSubmit={save} className="grid gap-2">
+          <Label htmlFor="caption">Caption under the QR</Label>
+          <div className="flex gap-2">
+            <Input id="caption" maxLength={40} className="uppercase" value={caption}
+              onChange={(e) => { dirty.current = true; setCaption(e.target.value); }} />
+            <Button>Save</Button>
+          </div>
+        </form>
+        <SwitchRow id="sponsors" label="Partner logos on the TV" hint="Each partner logo takes a turn between rounds."
+          checked={s.sponsors !== false} onChange={(on) => act('sponsors', { on })} />
+        <Separator />
+        <SwitchRow id="chroma" label="Chromatic aberration" hint="Colour fringing toward the edges of the backdrop, like an old lens."
+          checked={!!s.chroma?.on} onChange={(on) => act('chroma', { on })} />
+        <Level id="chromaAmt" label="Strength" value={s.chroma?.amount ?? .6} format={pct} disabled={!s.chroma?.on}
+          onCommit={(amount) => act('chroma', { amount })} />
+      </CardContent>
+    </Card>
   );
 }
 
-// ------------------------------------------------------------------ side cards
-function SwitchRow({ id, label, hint, checked, onChange }) {
+const CHIMES = [['marimba', 'Marimba'], ['bowl', 'Singing bowl'], ['dingdong', 'Ding-dong'], ['none', 'No sound']];
+
+function SoundCard({ settings: s, act }) {
+  const sound = s.sound || {}, amb = s.ambience || {};
   return (
-    <div className="flex items-start justify-between gap-4">
-      <Label htmlFor={id} className="grid cursor-pointer gap-1 font-normal">
-        <span className="text-sm font-medium">{label}</span>
-        {hint && <span className="text-xs leading-snug text-muted-foreground">{hint}</span>}
-      </Label>
-      <Switch id={id} checked={checked} onCheckedChange={onChange} className="mt-0.5" />
-    </div>
+    <Card className="gap-4">
+      <CardHeader>
+        <Title>SOUND</Title>
+        <CardDescription>Plays from the backdrop laptop. Sound starts after the first key press there (F for fullscreen is enough).</CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-5">
+        <div className="grid gap-2">
+          <Label className="flex items-center gap-2"><BellRing className="size-4 text-muted-foreground" />New question sound</Label>
+          <div className="flex gap-2">
+            <Select value={sound.chime || 'marimba'} onValueChange={(chime) => act('sound', { chime })}>
+              <SelectTrigger className="flex-1"><SelectValue /></SelectTrigger>
+              <SelectContent>{CHIMES.map(([k, l]) => <SelectItem key={k} value={k}>{l}</SelectItem>)}</SelectContent>
+            </Select>
+            <Button variant="secondary" onClick={() => act('tv', { cmd: 'test' }, 'Played on the backdrop')}>Test</Button>
+          </div>
+        </div>
+        <Level id="chimeVol" label="Question sound volume" value={sound.volume ?? .6} format={pct}
+          muted={!!sound.muted} onMute={(muted) => act('sound', { muted })} onCommit={(volume) => act('sound', { volume })} />
+        <Level id="fireVol" label="Campfire crackle" icon={Flame} value={amb.volume ?? .35} format={pct}
+          muted={!!amb.muted} onMute={(muted) => act('ambience', { muted })} onCommit={(volume) => act('ambience', { volume })} />
+      </CardContent>
+    </Card>
   );
 }
 
@@ -299,7 +305,7 @@ function LiveControls({ settings: s, act }) {
   return (
     <Card className="gap-4">
       <CardHeader>
-        <CardTitle className="font-display text-lg font-normal tracking-wider">LIVE CONTROLS</CardTitle>
+        <Title>LIVE CONTROLS</Title>
       </CardHeader>
       <CardContent className="grid gap-4">
         <SwitchRow id="moderation" label="Approve before the TV" hint="Questions wait here until you approve them. Swear words (English & Malay) are always held."
@@ -307,9 +313,9 @@ function LiveControls({ settings: s, act }) {
         <SwitchRow id="focus" label="Zoom into the TV" hint="The backdrop camera moves in close on the TV screen."
           checked={s.focus} onChange={(on) => act('focus', { on })} />
         <Separator />
-        <Confirm title="Clear the TV queue?" body="Every question still queued for the TV is marked as answered." action="Clear queue"
-          onConfirm={() => act('clear', {}, 'Queue cleared')}>
-          <Button variant="outline" className="w-full text-destructive hover:text-destructive"><X />Clear the TV queue</Button>
+        <Confirm title="Clear the TV?" body="Every question on the TV is marked as answered, so the slideshow starts empty." action="Clear"
+          onConfirm={() => act('clear', {}, 'TV cleared')}>
+          <Button variant="outline" className="w-full text-destructive hover:text-destructive"><X />Mark all TV questions answered</Button>
         </Confirm>
       </CardContent>
     </Card>
@@ -335,8 +341,8 @@ function Presenters({ settings: s, act }) {
   return (
     <Card className="gap-4">
       <CardHeader>
-        <CardTitle className="font-display text-lg font-normal tracking-wider">PRESENTERS</CardTitle>
-        <CardDescription>"On stage" shows their name under the logo and on the audience form.</CardDescription>
+        <Title>PRESENTERS</Title>
+        <CardDescription>“On stage” shows their name under the logo and on the audience form.</CardDescription>
       </CardHeader>
       <CardContent className="grid gap-3">
         {!list.length && <p className="rounded-lg border border-dashed py-6 text-center text-sm text-muted-foreground">No presenters yet.</p>}
@@ -361,36 +367,6 @@ function Presenters({ settings: s, act }) {
             onClick={() => { dirty.current = true; setList((l) => [...l, { id: crypto.randomUUID(), name: '', title: '' }]); }}><Plus />Add</Button>
           <Button className="flex-1" onClick={() => save()}>Save</Button>
         </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-function TvCard({ settings: s, act }) {
-  const [caption, setCaption] = useState(s.caption);
-  const dirty = useRef(false);
-  useEffect(() => { if (!dirty.current) setCaption(s.caption); }, [s.caption]);
-  const save = async (e) => {
-    e.preventDefault();
-    if (await act('caption', { caption }, 'Caption saved')) dirty.current = false;
-  };
-  return (
-    <Card className="gap-4">
-      <CardHeader>
-        <CardTitle className="font-display text-lg font-normal tracking-wider">TV</CardTitle>
-        <CardDescription>The TV shows the QR code, partner logos and audience questions.</CardDescription>
-      </CardHeader>
-      <CardContent className="grid gap-4">
-        <form onSubmit={save} className="grid gap-2">
-          <Label htmlFor="caption">Caption under the QR</Label>
-          <div className="flex gap-2">
-            <Input id="caption" maxLength={40} className="uppercase" value={caption}
-              onChange={(e) => { dirty.current = true; setCaption(e.target.value); }} />
-            <Button>Save</Button>
-          </div>
-        </form>
-        <SwitchRow id="sponsors" label="Partner logos on the TV" hint="Between questions, each partner logo takes a turn after the QR code."
-          checked={s.sponsors !== false} onChange={(on) => act('sponsors', { on })} />
         <Button variant="link" className="h-auto justify-start p-0 text-muted-foreground" asChild>
           <a href="/" target="_blank" rel="noopener"><ExternalLink />Open the backdrop</a>
         </Button>
