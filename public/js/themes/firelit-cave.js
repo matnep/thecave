@@ -704,7 +704,7 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
     { x: TV_AT.x + .8, z: TV_AT.z + .7, r: .3, h: .24, n: 80 },
     { x: TV_AT.x - .35, z: TV_AT.z + 1.25, r: .26, h: .14, n: 45 },
   ], { x: TV_AT.x + 1.35, z: TV_AT.z + 1.45, rotY: -.6, scale: .9 },   // the anchor, off to the right
-  { x: TV_AT.x - .55, z: TV_AT.z + 1.55, rotY: .35, scale: 1.05 });     // the chest, on the floor in front
+  { x: TV_AT.x - .55, z: TV_AT.z + 1.55, rotY: -.3, scale: 1.15 });     // the chest, on the floor in front
 
   scene.updateMatrixWorld(true);
   const screenWorld = screen.getWorldPosition(new THREE.Vector3());

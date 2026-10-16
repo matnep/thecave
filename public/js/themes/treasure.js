@@ -1,8 +1,9 @@
-// A hoard under the TV, all gold: heaps of coins, a crown, a couple of swords, an open chest pouring gold,
+// A hoard under the TV, all gold: heaps of coins, a crown, a couple of swords, a closed treasure chest,
 // twinkling glints, and an old ship's anchor lying beside it.
 // Everything is dropped onto the real rock/floor surfaces
 // with a raycast so nothing floats or sinks.
 import * as THREE from 'three';
+import { makeChest } from './chest.js';
 
 let seed = 7;
 const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
@@ -165,75 +166,16 @@ export function makeTreasure(scene, surfaces, heaps, anchorAt, chestAt) {
     group.add(lay);
   }
 
-  // ---- an open treasure chest on the floor in front of the TV's rock, gold pouring over its front lip
-  // into a pile. Low, and nearer the camera than the TV, so it sits below the screen in the shot.
-  let pour = null;
+  // ---- a closed treasure chest (see chest.js) on the floor in front of the TV's rock, low and nearer the
+  // camera than the TV, so it sits below the screen in the shot
   if (chestAt) {
-    const chest = new THREE.Group();
-    const wood = new THREE.MeshStandardMaterial({ color: 0x7e4626, roughness: .85, flatShading: true });
-    const band = new THREE.MeshStandardMaterial({ color: 0xb08a3a, metalness: .8, roughness: .4, flatShading: true });
-    const box = new THREE.Mesh(new THREE.BoxGeometry(.62, .3, .4), wood);
-    box.position.y = .15; chest.add(box);
-    for (const bx of [-.27, .27]) {
-      const b = new THREE.Mesh(new THREE.BoxGeometry(.05, .32, .42), band);
-      b.position.set(bx, .15, 0); chest.add(b);
-    }
-    const lock = new THREE.Mesh(new THREE.BoxGeometry(.08, .1, .02), goldFlat);
-    lock.position.set(0, .22, .205); chest.add(lock);
-    // lid: half a faceted barrel, swung open and resting back
-    const lid = new THREE.Group();
-    lid.position.set(0, .3, -.2);
-    const lidMesh = new THREE.Mesh(new THREE.CylinderGeometry(.2, .2, .62, 7, 1, false, 0, Math.PI), wood);
-    lidMesh.rotation.z = Math.PI / 2; lidMesh.position.z = .2;
-    lid.add(lidMesh);
-    lid.rotation.x = -2.0;
-    chest.add(lid);
-    // heaped gold inside, brimming over
-    const inside = new THREE.Mesh(new THREE.SphereGeometry(.28, 8, 4, 0, Math.PI * 2, 0, Math.PI / 2), gold);
-    inside.scale.set(1, .5, .66); inside.position.y = .27;
-    chest.add(inside);
-
-    // the pile the gold pours into, in front of the chest
-    const PILE = { z: .62, r: .26, h: .16 };
-    const pileN = 46;
-    const pile = new THREE.InstancedMesh(coinGeo, gold, pileN);
-    for (let k = 0; k < pileN; k++) {
-      const a = rnd() * 6.28, d = Math.sqrt(rnd()) * PILE.r;
-      o.position.set(Math.cos(a) * d, .01 + PILE.h * (1 - d / PILE.r) * (.6 + rnd() * .4), PILE.z + Math.sin(a) * d * .8);
-      o.rotation.set((rnd() - .5) * 1.2, rnd() * 6.28, (rnd() - .5) * 1.2);
-      o.updateMatrix();
-      pile.setMatrixAt(k, o.matrix);
-    }
-    chest.add(pile);
-
-    // the pour: coins slide over the lip and tumble down an arc onto the pile, on a loop
-    const STREAM = 34;
-    const stream = new THREE.InstancedMesh(coinGeo, gold, STREAM);
-    stream.frustumCulled = false;
-    const lane = Array.from({ length: STREAM }, () => [(rnd() - .5) * .22, (rnd() - .5) * .08, rnd() * 6.28, .7 + rnd() * .6]);
-    chest.add(stream);
-    pour = (t) => {
-      for (let k = 0; k < STREAM; k++) {
-        const [dx, dz, spin, rate] = lane[k];
-        const u = (t * .45 * rate + k / STREAM) % 1;
-        const y = .32 + .08 * u - .36 * u * u;                 // over the lip, then down onto the pile
-        o.position.set(dx * (1 + u * .6), Math.max(y, .02 + PILE.h * .8 * (1 - u * .3)), .19 + (PILE.z - .19) * u + dz);
-        o.rotation.set(spin + t * 6 * rate, spin, u * 2.5);
-        o.scale.setScalar(u > .96 ? (1 - u) * 25 : 1);           // tucks into the pile at the end of its run
-        o.updateMatrix();
-        stream.setMatrixAt(k, o.matrix);
-      }
-      o.scale.setScalar(1);
-      stream.instanceMatrix.needsUpdate = true;
-    };
-
+    const chest = makeChest();
     chest.position.set(chestAt.x, groundAt(chestAt.x, chestAt.z), chestAt.z);
     chest.rotation.y = chestAt.rotY || 0;
     chest.scale.setScalar(chestAt.scale || 1);
-    chest.traverse((m) => { if (m.isMesh) m.castShadow = m.receiveShadow = true; });
     group.add(chest);
     chest.updateMatrixWorld(true);
-    for (const local of [[0, .38, 0], [0, .22, PILE.z], [.1, .3, .3]]) tops.push(chest.localToWorld(new THREE.Vector3(...local)));
+    for (const local of [[-.17, .56, .2], [.17, .56, -.1], [0, .3, .3]]) tops.push(chest.localToWorld(new THREE.Vector3(...local)));
   }
 
   // ---- glints: little four-pointed stars that twinkle on and off
@@ -269,7 +211,6 @@ export function makeTreasure(scene, surfaces, heaps, anchorAt, chestAt) {
   return {
     update(t) {
       glintMat.uniforms.uTime.value = t;
-      pour?.(t);
     },
   };
 }
