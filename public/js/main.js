@@ -12,6 +12,7 @@ import * as sound from './sound.js';
 // number key → theme module. Add new themes here.
 const THEMES = {
   1: () => import('./themes/firelit-cave.js'),
+  2: () => import('./themes/neon-cave.js'),
 };
 
 await Promise.all([document.fonts.load('100px Anton'), document.fonts.load('100px VT323')]);
@@ -39,7 +40,7 @@ let alarm = false;                         // alarm light held on from the admin
 const unlockAudio = () => { sound.unlock(); applyAmbience(); };
 addEventListener('keydown', unlockAudio);
 addEventListener('pointerdown', unlockAudio);
-const applyAmbience = () => sound.setFire(ambience.muted ? 0 : ambience.volume);
+const applyAmbience = () => sound.setAmbience(ambience.muted ? 0 : ambience.volume);
 const playChime = () => { if (!soundCfg.muted) sound.chime(soundCfg.chime, soundCfg.volume); };
 tvScreen.onQuestion = () => { playChime(); theme?.onQuestion?.(); };
 const screenTex = new THREE.CanvasTexture(tvScreen.canvas);
@@ -67,6 +68,7 @@ async function loadTheme(n) {
   try {
     const mod = await THEMES[n]();
     const next = await mod.create({ renderer, tvScreen, screenTex, logoImg });
+    sound.setAmbienceKind(mod.ambience || 'fire');     // each theme brings its own background sound
     theme?.dispose();
     theme = next; themeNum = n;
     if (tier >= 3) theme.degrade();

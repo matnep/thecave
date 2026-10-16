@@ -1,12 +1,13 @@
 // Sound for the backdrop, all synthesised with WebAudio (no audio files, so nothing to license).
 //   chime(kind, volume)   the new-question sound: 'marimba' | 'bowl' | 'dingdong' | 'none'
-//   setFire(volume)       crackling campfire ambience, 0 = off
+//   setAmbience(volume)   the theme's background sound, 0 = off
+//   setAmbienceKind(kind) which one: 'fire' (crackling campfire, theme 1) | 'hum' (soft electronic hum, theme 2)
 // Browsers only allow sound after a key press or click, so everything waits for unlock() (pressing F is enough).
 
 let ctx = null;
 let master = null;
-let fire = null;
-let fireWant = 0;
+const beds = {};                 // ambience generators made so far, by kind
+let bedKind = 'fire', bedWant = 0;
 
 export function unlock() {
   if (!ctx) {
@@ -15,8 +16,7 @@ export function unlock() {
     master.connect(ctx.destination);
   }
   if (ctx.state === 'suspended') ctx.resume();
-  if (fireWant > 0 && !fire) fire = makeFire();
-  fire?.setVolume(fireWant);
+  applyBeds();
 }
 export const ready = () => ctx?.state === 'running';
 
@@ -68,13 +68,17 @@ export function chime(kind = 'marimba', volume = .6) {
   setTimeout(() => out.disconnect(), 6000);
 }
 
-// ------------------------------------------------------------------ campfire
-export function setFire(volume) {
-  fireWant = volume;
+// ------------------------------------------------------------------ ambience
+export function setAmbience(volume) { bedWant = volume; applyBeds(); }
+export function setAmbienceKind(kind) { if (MAKERS[kind]) { bedKind = kind; applyBeds(); } }
+// the chosen bed at the wanted volume, any other fades out (they crossfade over ~1 s on a theme switch)
+function applyBeds() {
   if (!ready()) return;
-  if (volume > 0 && !fire) fire = makeFire();
-  fire?.setVolume(volume);
+  if (bedWant > 0 && !beds[bedKind]) beds[bedKind] = MAKERS[bedKind]();
+  for (const [kind, bed] of Object.entries(beds)) bed.setVolume(kind === bedKind ? bedWant : 0);
 }
+
+// ------------------------------------------------------------------ campfire
 
 // A fire is three layers: a low breathy roar, a faint hiss, and crackles: tiny bursts of filtered noise at random
 // moments, mostly small, sometimes a louder pop followed by a little cluster, like resin snapping in a log.
@@ -158,3 +162,60 @@ function makeFire() {
     },
   };
 }
+
+// ------------------------------------------------------------------ electronic hum
+// A low, warm drone (two soft tones a fifth apart, gently beating, through a slowly breathing filter), a faint
+// airy wash, and now and then a quiet little blip, like machines thinking somewhere in the dark. Nothing sharp.
+function makeHum() {
+  const out = ctx.createGain();
+  out.gain.value = 0;
+  out.connect(master);
+  const filter = ctx.createBiquadFilter();
+  filter.type = 'lowpass'; filter.frequency.value = 420; filter.Q.value = .7;
+  filter.connect(out);
+  for (const [f, level, type] of [[55, .32, 'sine'], [55.4, .22, 'sine'], [82.4, .16, 'sine'], [110, .05, 'triangle']]) {
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = type; o.frequency.value = f; g.gain.value = level;
+    o.connect(g).connect(filter);
+    o.start();
+  }
+  // the filter breathes: a very slow wobble opens and closes it
+  const lfo = ctx.createOscillator(), depth = ctx.createGain();
+  lfo.frequency.value = .06; depth.gain.value = 160;
+  lfo.connect(depth).connect(filter.frequency);
+  lfo.start();
+  // airy wash
+  const noise = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
+  const n = noise.getChannelData(0);
+  for (let i = 0; i < n.length; i++) n[i] = Math.random() * 2 - 1;
+  const air = ctx.createBufferSource(); air.buffer = noise; air.loop = true;
+  const band = ctx.createBiquadFilter(); band.type = 'bandpass'; band.frequency.value = 900; band.Q.value = .6;
+  const airGain = ctx.createGain(); airGain.gain.value = .025;
+  air.connect(band).connect(airGain).connect(out);
+  air.start();
+  // quiet blips every few seconds
+  let timer = null;
+  const blip = () => {
+    const t = ctx.currentTime + .05;
+    const o = ctx.createOscillator(), g = ctx.createGain(), p = ctx.createStereoPanner();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(900 + Math.random() * 1400, t);
+    o.frequency.exponentialRampToValueAtTime(600 + Math.random() * 900, t + .12);
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(.05 + Math.random() * .04, t + .015);
+    g.gain.exponentialRampToValueAtTime(.0001, t + .25);
+    p.pan.value = Math.random() * 1.4 - .7;
+    o.connect(g).connect(p).connect(out);
+    o.start(t); o.stop(t + .3);
+    timer = setTimeout(blip, 2200 + Math.random() * 5000);
+  };
+  return {
+    setVolume(v) {
+      out.gain.setTargetAtTime(v * .9, ctx.currentTime, .4);
+      if (v > 0 && !timer) timer = setTimeout(blip, 1500);
+      if (v <= 0 && timer) { clearTimeout(timer); timer = null; }
+    },
+  };
+}
+
+const MAKERS = { fire: makeFire, hum: makeHum };
