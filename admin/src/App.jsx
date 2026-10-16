@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   BellRing, Check, Clock, ExternalLink, EyeOff, Flag, Flame, LogOut, MonitorPlay, Plus, QrCode, RotateCcw, Search,
-  Smartphone, Trash2, Tv, Undo2, UserRound, Volume2, VolumeX, X, ZoomIn, ZoomOut,
+  Siren, Smartphone, Trash2, Tv, Undo2, UserRound, Volume2, VolumeX, X, ZoomIn, ZoomOut,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -71,7 +71,7 @@ function Dashboard({ onOut }) {
           <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4 sm:gap-6">
             <TvCard settings={state.settings} act={act} />
             <SoundCard settings={state.settings} act={act} />
-            <LiveControls settings={state.settings} act={act} />
+            <LiveControls state={state} act={act} />
             <Presenters settings={state.settings} act={act} />
           </div>
         </main>
@@ -307,7 +307,8 @@ function SoundCard({ settings: s, act }) {
   );
 }
 
-function LiveControls({ settings: s, act }) {
+function LiveControls({ state, act }) {
+  const s = state.settings;
   return (
     <Card className="gap-4">
       <CardHeader>
@@ -316,6 +317,16 @@ function LiveControls({ settings: s, act }) {
       <CardContent className="grid gap-4">
         <SwitchRow id="moderation" label="Approve before the TV" hint="Questions wait here until you approve them. Swear words (English & Malay) are always held."
           checked={s.moderation} onChange={(on) => act('moderation', { on })} />
+        {/* the TV screen: same as the presenter's arrow keys (← → ↑ ↓) */}
+        <div className="grid gap-2">
+          <Label className="text-sm font-medium">TV screen</Label>
+          <TvRemote state={state} act={act} cols={2} />
+        </div>
+        {/* alarm light on the TV: hold it on (new questions still set it off for a few seconds either way) */}
+        <Button variant={s.alarm ? 'destructive' : 'secondary'} className="w-full"
+          onClick={() => act('alarm', { on: !s.alarm }, s.alarm ? 'Alarm light off' : 'Alarm light on')}>
+          <Siren />{s.alarm ? 'Turn the alarm light off' : 'Turn the alarm light on'}
+        </Button>
         {/* camera zoom on the backdrop: in close on the TV, or back out to the whole cave */}
         <Button variant={s.focus ? 'default' : 'secondary'} className="w-full"
           onClick={() => act('focus', { on: !s.focus }, s.focus ? 'Zoomed out' : 'Zoomed in on the TV')}>

@@ -793,6 +793,9 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
     // new question: the alarm beacon on the TV spins up
     onQuestion() { beacon.trigger(); },
 
+    // the admin's alarm switch: keep the beacon lit until it's switched off
+    setAlarm(on) { beacon.hold(on); },
+
     // amount 0..1 from the admin; .6 is the classic look
     setChromatic(on, amount = .6) { chromaWant = on ? amount / .6 : 0; },
 

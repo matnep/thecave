@@ -32,6 +32,7 @@ let presenter = null;
 let chroma = { on: false, amount: .6 };   // from the admin; C flips it on this screen until the admin changes it
 let soundCfg = { chime: 'marimba', volume: .6, muted: false };
 let ambience = { volume: .35, muted: false };
+let alarm = false;                         // alarm light held on from the admin
 
 // ---- sound: synthesised in sound.js. Browsers only allow audio after a key press or click,
 // so it unlocks on the first one (pressing F for fullscreen is enough).
@@ -72,6 +73,7 @@ async function loadTheme(n) {
     tvScreen.onSwitch = (item) => theme.onSwitch(item);
     theme.setPresenter?.(presenter);
     theme.setChromatic?.(chroma.on, chroma.amount);
+    theme.setAlarm?.(alarm);
     localStorage.setItem('cave-theme', String(n));
     window.__cave = { theme, themeNum, tvScreen, renderer, ...theme.debug };
   } catch (err) {
@@ -161,6 +163,7 @@ function connect() {
       if (c.sound) soundCfg = c.sound;
       if (c.ambience) { ambience = c.ambience; applyAmbience(); }
       if (c.chroma) { chroma = c.chroma; theme?.setChromatic?.(chroma.on, chroma.amount); }
+      if (typeof c.alarm === 'boolean') { alarm = c.alarm; theme?.setAlarm?.(alarm); }
     }
     if (msg.type === 'init' || msg.type === 'approved') tvScreen.setApproved(msg.approved || msg.list || []);
     if (msg.type === 'init' && !started) { started = true; tvScreen.start(); }

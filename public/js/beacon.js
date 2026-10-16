@@ -47,15 +47,17 @@ export function makeBeacon() {
 
   let left = 0;            // seconds of alarm remaining
   let shake = 99;          // seconds since it went off
+  let held = false;        // switched on from the admin: stays lit
   let on = 0;              // eased 0..1: how red it is
 
   return {
     group,
     trigger() { left = ALARM_SECS; shake = 0; },
+    hold(on) { if (on && !held) shake = 0; held = on; },
     get active() { return on > .01; },
     update(dt, t) {
       left = Math.max(0, left - dt);
-      const want = left > 0 ? 1 : 0;
+      const want = left > 0 || held ? 1 : 0;
       on += (want - on) * Math.min(1, dt * (want ? 6 : 1.8));
       const pulse = .8 + .2 * Math.sin(t * Math.PI * 2 * PULSE_HZ);   // a gentle breathing glow, not an on/off flash
 

@@ -21,6 +21,7 @@ const DEFAULTS = {
   sound: { chime: 'marimba', volume: .6, muted: false },   // new-question sound on the backdrop
   ambience: { volume: .35, muted: false },                 // crackling fire
   chroma: { on: false, amount: .6 },                       // chromatic aberration
+  alarm: false,            // alarm light held on by the admin (new questions still flash it regardless)
   tv: null,                // { kind, id, manual, at } as last reported by the backdrop
 };
 const CHIMES = ['marimba', 'bowl', 'dingdong', 'none'];
@@ -74,6 +75,7 @@ export class Room extends DurableObject {
     return {
       caption: this.setting('caption'), presenter: this.livePresenter(), focus: this.setting('focus'), sponsors: this.setting('sponsors'),
       questionSecs: this.setting('questionSecs'), sound: this.setting('sound'), ambience: this.setting('ambience'), chroma: this.setting('chroma'),
+      alarm: this.setting('alarm'),
     };
   }
   // everything cleared for the TV, oldest first: the backdrop's slideshow
@@ -126,6 +128,7 @@ export class Room extends DurableObject {
         moderation: this.setting('moderation'), focus: this.setting('focus'), presenters: this.setting('presenters'),
         live: this.setting('live'), caption: this.setting('caption'), sponsors: this.setting('sponsors'),
         questionSecs: this.setting('questionSecs'), sound: this.setting('sound'), ambience: this.setting('ambience'), chroma: this.setting('chroma'),
+        alarm: this.setting('alarm'),
       },
       tv: this.setting('tv'),
       displays: this.ctx.getWebSockets('display').filter((w) => w.readyState === 1).length,
@@ -227,6 +230,10 @@ export class Room extends DurableObject {
         this.pushConfig();
         break;
       }
+      case 'alarm':
+        this.put('alarm', !!body.on);
+        this.pushConfig();
+        break;
       case 'tv':                   // remote control for the backdrop's TV
         if (!TV_COMMANDS.includes(body.cmd)) return { error: 'Unknown TV command.' };
         this.broadcast('display', { type: 'control', cmd: body.cmd });

@@ -159,7 +159,8 @@ export function tvSummary(state) {
 }
 
 // next / previous / QR / back to the slideshow, same as the presenter's arrow keys
-export function TvRemote({ state, act, size = 'default' }) {
+// cols = 2 for narrow spots (a 2x2 grid with labels), 4 for a single row
+export function TvRemote({ state, act, size = 'default', cols = 4 }) {
   const { tv } = tvSummary(state);
   const send = (cmd) => act('tv', { cmd });
   const big = size === 'lg';
@@ -171,7 +172,7 @@ export function TvRemote({ state, act, size = 'default' }) {
           <span className="flex-1">The TV is on <b>manual</b>: it holds the current slide. Press <b>Slideshow</b> to let questions rotate on their own.</span>
         </div>
       )}
-      <div className="grid grid-cols-4 gap-2">
+      <div className={cn('grid gap-2', cols === 2 ? 'grid-cols-2' : 'grid-cols-4')}>
         {[
           ['prev', 'Prev', <ChevronLeft key="i" />, 'secondary'],
           ['qr', 'QR', <QrCode key="i" />, 'secondary'],
@@ -180,7 +181,7 @@ export function TvRemote({ state, act, size = 'default' }) {
         ].map(([cmd, label, icon, variant]) => (
           <Button key={cmd} variant={variant} onClick={() => send(cmd)} aria-label={label}
             className={cn(big ? 'h-16 flex-col gap-1 text-[11px]' : 'gap-1.5')}>
-            {icon}<span className={cn(!big && 'hidden sm:inline')}>{label}</span>
+            {icon}<span className={cn(!big && cols !== 2 && 'hidden sm:inline')}>{label}</span>
           </Button>
         ))}
       </div>
