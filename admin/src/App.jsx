@@ -18,7 +18,7 @@ import { Toaster } from '@/components/ui/sonner';
 import { cn } from '@/lib/utils';
 import {
   Brand, Confirm, LiveBadge, Login, SwitchRow, TvRemote, post, tvSummary, useAct, useAuth, useRoom,
-} from '@/shared';
+} from '@/room-kit';
 
 export default function App() {
   const { auth, signIn, signOut } = useAuth();

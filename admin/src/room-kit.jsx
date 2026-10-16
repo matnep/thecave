@@ -1,4 +1,5 @@
-// Pieces shared by the admin page (/admin) and the moderator panel (/panel):
+// Pieces used by both the admin page (/admin) and the moderator panel (/panel). Named room-kit rather than
+// "shared": some ad blockers block files called shared-*.
 // sign-in, the live connection to the room, and the TV remote.
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';

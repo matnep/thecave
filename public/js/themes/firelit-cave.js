@@ -15,7 +15,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { floatingLogo, grainCanvas } from '../wall-art.js';
 import { makeTV } from '../tv.js';
-import { makeBeacon } from '../beacon.js';
+import { makeBeacon } from '../alarm-light.js';
 import { makeFlipClock } from '../flip-clock.js';
 import { makeFire } from '../fire.js';
 import { createLife } from './cave-life.js';

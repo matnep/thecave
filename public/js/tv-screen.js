@@ -17,9 +17,9 @@ const QS_PER_ROUND = 3;         // questions between two QR codes in the slidesh
 const QR_SIZE = 500;   // leaves room for a big, readable caption underneath
 const QR_HOLD_MS = 14000;       // QR between rounds
 const PARTNER_MS = 6500;        // each partner logo
-const PARTNER_GAP = 24;         // empty columns that separate two partners in partners.png
+const PARTNER_GAP = 24;         // empty columns that separate two partners in logo-strip.png
 
-// partners.png is one strip of logos. Cut it into one canvas per partner wherever there's a wide transparent gap
+// logo-strip.png is one strip of partner logos. Cut it into one canvas per partner wherever there's a wide transparent gap
 // (an icon and its wordmark sit closer than that, so they stay together). White wordmarks turn amber to suit the tube.
 function splitPartners(img) {
   const w = img.width, h = img.height;
@@ -86,7 +86,7 @@ export class TVScreen {
     this.sponsors = true;           // admin switch
     const strip = new Image();
     strip.onload = () => { this.partners = splitPartners(strip); };
-    strip.src = '/partners.png';
+    strip.src = '/logo-strip.png';
     this.onSwitch = () => {};       // content is about to change (start the static burst)
     this.onQuestion = () => {};     // a new question just arrived (sound + alarm light)
     this.onStatus = () => {};       // what's showing changed (reported to the admin and moderator panel)

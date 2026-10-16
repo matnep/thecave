@@ -56,14 +56,14 @@ The last theme used is remembered; `/?theme=1` forces one.
 
 To add a theme: copy `firelit-cave.js`, change it, and register it in the `THEMES` list at the top of `public/js/main.js`.
 
-Shared pieces: `public/js/main.js` (renderer, keys, WebSocket to the room) · `sound.js` (question chimes and the campfire crackle, synthesised with WebAudio: no audio files, nothing to license) · `beacon.js` (the alarm light) · `flip-clock.js` (the clock on the TV) · `themes/creature-models.js` (loads the duck and fish models, see Credits) · `tv-screen.js` (what's on the TV) · `tv.js` (the TV model) · `themes/treasure.js` (the hoard) · `themes/chest.js` (the treasure chest) · `fire.js` (campfire) · `wall-art.js` (logo painting)
+Shared pieces: `public/js/main.js` (renderer, keys, WebSocket to the room) · `sound.js` (question chimes and the campfire crackle, synthesised with WebAudio: no audio files, nothing to license) · `alarm-light.js` (the alarm beacon; not named beacon.js, which ad blockers block) · `flip-clock.js` (the clock on the TV) · `themes/creature-models.js` (loads the duck and fish models, see Credits) · `tv-screen.js` (what's on the TV) · `tv.js` (the TV model) · `themes/treasure.js` (the hoard) · `themes/chest.js` (the treasure chest) · `fire.js` (campfire) · `wall-art.js` (logo painting)
 
 The TV runs a slideshow: the QR code, then up to three approved questions, then each partner logo in turn, and round again. Every approved question keeps coming
 back until it's marked answered or hidden. A new question goes up as soon as the one on screen has had its time: the chime plays and the alarm
 beacon on top of the TV turns from clear glass to red, rattles on the cabinet and glows gently (a slow, shallow pulse).
 Slides change with a soft 0.7 s crossfade: no static, flashes or strobing anywhere, to be safe for photosensitive viewers. The QR is drawn amber-on-dark to match the TV. Sound needs one key press or click
 on the backdrop first (browsers block sound until then); pressing **F** for fullscreen is enough.
-The TV's cabinet is worn; a retro flip clock on top shows the time; a hoard of gold glints under it (coins, a crown, two swords, and a closed treasure chest on the floor in front) with an old ship's anchor lying beside it. Partner logos (`public/partners.png`) take turns with the QR on the TV: the strip is split into one logo per partner wherever there is a wide transparent gap.
+The TV's cabinet is worn; a retro flip clock on top shows the time; a hoard of gold glints under it (coins, a crown, two swords, and a closed treasure chest on the floor in front) with an old ship's anchor lying beside it. Partner logos (`public/logo-strip.png`) take turns with the QR on the TV: the strip is split into one logo per partner wherever there is a wide transparent gap.
 From /admin you can bring any question back with **Show again**.
 
 **Backdrop keys:** `1`–`9` theme · `F` fullscreen · `Q` camera zooms in/out of the TV (shows whatever is on it) · `C` chromatic aberration on/off on this screen (the admin setting wins on its next change; eases off while zoomed into the TV) · `P` FPS meter

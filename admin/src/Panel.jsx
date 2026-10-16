@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Toaster } from '@/components/ui/sonner';
 import { cn } from '@/lib/utils';
-import { Brand, LiveBadge, Login, TvRemote, post, tvSummary, useAct, useAuth, useRoom } from '@/shared';
+import { Brand, LiveBadge, Login, TvRemote, post, tvSummary, useAct, useAuth, useRoom } from '@/room-kit';
 
 const SIZES = ['text-lg', 'text-xl', 'text-2xl', 'text-3xl', 'text-4xl'];
 
