@@ -1,7 +1,7 @@
 // The moderator panel (/panel): for a phone or tablet on stage. Big, readable questions, what's on the TV right now,
 // the TV remote, and quick approve / show / answered. Same login as the admin page.
 import { useEffect, useMemo, useState } from 'react';
-import { AArrowDown, AArrowUp, Check, EyeOff, LogOut, Tv } from 'lucide-react';
+import { AArrowDown, AArrowUp, Check, EyeOff, LogOut, Tv, ZoomIn, ZoomOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -86,6 +86,11 @@ function Board({ onOut }) {
                 </div>
               ) : <p className="text-lg text-muted-foreground">{label}</p>}
               <TvRemote state={state} act={act} size="lg" />
+              {/* camera zoom on the backdrop: in close on the TV, or back out to the whole cave */}
+              <Button variant={state.settings.focus ? 'default' : 'secondary'} className="h-12"
+                onClick={() => act('focus', { on: !state.settings.focus }, state.settings.focus ? 'Zoomed out' : 'Zoomed in on the TV')}>
+                {state.settings.focus ? <><ZoomOut />Zoom out to the cave</> : <><ZoomIn />Zoom in on the TV</>}
+              </Button>
               {onTv && (
                 <Button variant="outline" className="h-12" onClick={() => act('answered', { id: onTv.id }, 'Marked answered')}><Check />Answered: take it off the TV</Button>
               )}

@@ -22,7 +22,7 @@ Runs on Cloudflare: a Worker serves the site and API, and one Durable Object kee
 
 ## Moderator panel
 `/panel` is for whoever reads questions out on stage: the question on the TV right now in large type (A−/A+ to resize),
-the same TV remote, the queue with Show now / Answered, and Waiting questions to approve or hide. It keeps the phone screen awake.
+the same TV remote, a Zoom in / Zoom out button for the backdrop camera, the queue with Show now / Answered, and Waiting questions to approve or hide. It keeps the phone screen awake.
 
 ## Run locally
 ```
