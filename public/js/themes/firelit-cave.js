@@ -16,8 +16,10 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { floatingLogo, grainCanvas } from '../wall-art.js';
 import { makeTV } from '../tv.js';
 import { makeBeacon } from '../beacon.js';
+import { makeFlipClock } from '../flip-clock.js';
 import { makeFire } from '../fire.js';
 import { createLife } from './cave-life.js';
+import { createClearance } from './clearance.js';
 import { makeTreasure } from './treasure.js';
 
 export const name = 'Firelit cave';
@@ -97,8 +99,11 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
   // Static rock is collected by shadow role and merged into one mesh per role at the end (flushRocks),
   // so ~80 rocks cost 3 draw calls. keep: true returns a real mesh now (needed for raycasting).
   const rockBuckets = new Map();
+  // every rock that reaches the waterline is also stamped into a top-down map, so ducks and fish steer round them
+  const clearance = createClearance({ x0: -12, z0: -16, x1: 12, z1: 8, groundY });
   function addRock(geo, opts, { cast = true, receive = true, keep = false } = {}) {
     const painted = paintRock(geo, opts);
+    clearance.addGeometry(painted);
     if (keep) {
       const m = new THREE.Mesh(painted, rockMat);
       m.castShadow = cast; m.receiveShadow = receive;
@@ -653,11 +658,15 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
   tv.position.set(TV_AT.x, TV_AT.y + .52, TV_AT.z);
   tv.rotation.y = -.45;
   scene.add(tv);
-  // alarm beacon on the cabinet's top-left corner, clear of the rabbit ears
+  // on the cabinet's top: the alarm beacon on the right, in front of the rabbit ears; a flip clock on the left
   const beacon = makeBeacon();
-  beacon.group.position.set(-.62, 2.03, .12);
-  beacon.group.scale.setScalar(1.4);
+  beacon.group.position.set(.74, 2.07, .36);
+  beacon.group.scale.setScalar(1.2);
   tv.add(beacon.group);
+  const clock = makeFlipClock();
+  clock.group.position.set(-.5, 2.07, .12);
+  clock.group.rotation.y = .12;
+  tv.add(clock.group);
 
   // the hoard heaped in front of and under the TV
   scene.updateMatrixWorld(true);
@@ -674,6 +683,7 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
   const FOCUS = { look: screenWorld.clone(), pos: screenWorld.clone().addScaledVector(screenNormal, 1.95).add(new THREE.Vector3(0, .04, 0)) };
 
   flushRocks();
+  clearance.finish();
 
   // ============================================================ lights
   scene.add(new THREE.HemisphereLight(0xb08060, 0x2a1810, 1.5));
@@ -733,7 +743,7 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
 
 
   // ============================================================ ambient life
-  const life = createLife(scene, { groundY, MOUTH, smooth, mix });
+  const life = createLife(scene, { groundY, MOUTH, smooth, mix, clearance });
 
   // ============================================================ per-frame
   const look = HOME.look.clone();
@@ -792,6 +802,7 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
       screenMat.uniforms.uFocus.value = focus;
       tvLight.intensity = (2.2 + staticAmt * 1.5 + (tvScreen.isLive ? .8 : 0)) * ig;
       beacon.update(dt, t);
+      clock.update(dt);
       treasure.update(t);
       presenterFade += (presenterWant - presenterFade) * Math.min(1, dt * 4);
       presenterMat.opacity = presenterFade;
@@ -840,6 +851,6 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
       composer.dispose();
     },
 
-    debug: { scene, camera, logo, life },
+    debug: { scene, camera, logo, life, clearance },
   };
 }

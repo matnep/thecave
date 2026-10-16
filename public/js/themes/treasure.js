@@ -1,5 +1,5 @@
-// A hoard under the TV: heaps of gold coins, a small open chest spilling gold, scattered gems,
-// twinkling glints, a warm gold glow, and a live amber clock on the chest's front.
+// A hoard under the TV, all gold: heaps of coins, a small open chest spilling gold, a crown,
+// a couple of swords, and twinkling glints.
 // Everything is dropped onto the real rock/floor surfaces
 // with a raycast so nothing floats or sinks.
 import * as THREE from 'three';
@@ -25,6 +25,9 @@ export function makeTreasure(scene, surfaces, heaps, chestAt) {
   };
 
   const gold = new THREE.MeshStandardMaterial({ color: 0xffc43d, metalness: 1, roughness: .28, emissive: 0x7a4300, emissiveIntensity: .75 });
+  const goldFlat = new THREE.MeshStandardMaterial({ color: 0xffc43d, metalness: 1, roughness: .3, emissive: 0x7a4300, emissiveIntensity: .7, flatShading: true });
+  const steel = new THREE.MeshStandardMaterial({ color: 0xd8d4cc, metalness: .9, roughness: .25, emissive: 0x4a3c30, flatShading: true });
+  const leather = new THREE.MeshStandardMaterial({ color: 0x3a2216, roughness: .8, flatShading: true });
 
   // ---- coins
   const coinGeo = new THREE.CylinderGeometry(.075, .075, .018, 10);
@@ -57,48 +60,73 @@ export function makeTreasure(scene, surfaces, heaps, chestAt) {
   }
   group.add(coins);
 
-  // ---- gems
-  const GEMS = [0xa0102e, 0x137a44, 0x1d3fae];   // ruby, emerald, sapphire: deep, so the gold stays the star
-  for (let g = 0; g < 7; g++) {
-    const color = GEMS[g % GEMS.length];
-    const gem = new THREE.Mesh(new THREE.OctahedronGeometry(.035 + rnd() * .02, 0),
-      new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: .25, metalness: .3, roughness: .1, flatShading: true }));
-    const h = heaps[g % heaps.length];
-    const a = rnd() * 6.28, d = Math.sqrt(rnd()) * h.r * .9;
-    const x = h.x + Math.cos(a) * d, z = h.z + Math.sin(a) * d;
-    gem.position.set(x, groundAt(x, z) + h.h * (1 - d / h.r) * .8 + .05, z);
-    gem.rotation.set(rnd() * 3, rnd() * 3, rnd() * 3);
-    gem.scale.y = 1.4;
-    gem.castShadow = true;
-    group.add(gem);
+  // ---- crown: a faceted gold band with points, tipped with little gold balls, tipped over on the biggest heap
+  {
+    const h = heaps[0];
+    const crown = new THREE.Group();
+    const band = new THREE.CylinderGeometry(.13, .12, .1, 10, 1, true);
+    crown.add(new THREE.Mesh(band, goldFlat));
+    const POINTS = 5;
+    for (let k = 0; k < POINTS; k++) {
+      const a = (k / POINTS) * Math.PI * 2;
+      const spike = new THREE.Mesh(new THREE.ConeGeometry(.035, .11, 4), goldFlat);
+      spike.position.set(Math.cos(a) * .125, .1, Math.sin(a) * .125);
+      spike.rotation.set(Math.sin(a) * .25, 0, -Math.cos(a) * .25);   // leaning out a touch
+      crown.add(spike);
+      const ball = new THREE.Mesh(new THREE.IcosahedronGeometry(.018, 0), goldFlat);
+      ball.position.set(Math.cos(a) * .14, .16, Math.sin(a) * .14);
+      crown.add(ball);
+    }
+    const rim = new THREE.Mesh(new THREE.TorusGeometry(.125, .012, 4, 10), goldFlat);
+    rim.rotation.x = Math.PI / 2; rim.position.y = -.045;
+    crown.add(rim);
+    const x = h.x - .05, z = h.z - .02;
+    crown.position.set(x, groundAt(x, z) + h.h * .9 + .1, z);
+    crown.rotation.set(.3, .6, -.2);
+    crown.scale.setScalar(1.9);
+    group.add(crown);
+    tops.push(crown.position.clone().add(new THREE.Vector3(0, .15, 0)));
   }
 
-  // ---- clock face for the chest front: amber digits over faint "88:88" ghost segments
-  const clockCanvas = document.createElement('canvas');
-  clockCanvas.width = 512; clockCanvas.height = 220;
-  const clockTex = new THREE.CanvasTexture(clockCanvas);
-  clockTex.colorSpace = THREE.SRGBColorSpace;
-  clockTex.anisotropy = 8;
-  let lastClock = '';
-  function drawClock(now = new Date()) {
-    const hh = String(now.getHours()).padStart(2, '0'), mm = String(now.getMinutes()).padStart(2, '0');
-    const colon = now.getSeconds() % 2 === 0;
-    const key = hh + mm + colon;
-    if (key === lastClock) return;
-    lastClock = key;
-    const x = clockCanvas.getContext('2d');
-    x.fillStyle = '#140b06';
-    x.fillRect(0, 0, 512, 220);
-    x.strokeStyle = '#3a2412'; x.lineWidth = 10;
-    x.strokeRect(5, 5, 502, 210);
-    x.font = '200px VT323';
-    x.textAlign = 'center'; x.textBaseline = 'middle';
-    x.fillStyle = 'rgba(255,150,40,.09)';
-    x.fillText('88:88', 256, 116);
-    x.shadowColor = 'rgba(255,140,30,.9)'; x.shadowBlur = 18;
-    x.fillStyle = '#ffb238';
-    x.fillText(`${hh}${colon ? ':' : ' '}${mm}`, 256, 116);
-    clockTex.needsUpdate = true;
+  // ---- swords: steel blade, gold crossguard and pommel, dark grip. One plunged into a heap, one lying across the coins.
+  function sword() {
+    const g = new THREE.Group();
+    const bladeGeo = new THREE.BoxGeometry(.045, .62, .012, 1, 4, 1);
+    const bp = bladeGeo.attributes.position;
+    for (let i = 0; i < bp.count; i++) {
+      const y = bp.getY(i);
+      if (y > .3) bp.setX(i, 0);                                   // the point
+      else bp.setX(i, bp.getX(i) * (1 - Math.max(0, y) * .25));     // slight taper
+    }
+    bladeGeo.translate(0, .31, 0);
+    g.add(new THREE.Mesh(bladeGeo, steel));
+    const guard = new THREE.Mesh(new THREE.BoxGeometry(.2, .03, .04), goldFlat);
+    g.add(guard);
+    const grip = new THREE.Mesh(new THREE.CylinderGeometry(.016, .018, .13, 6), leather);
+    grip.position.y = -.08; g.add(grip);
+    const pommel = new THREE.Mesh(new THREE.IcosahedronGeometry(.028, 0), goldFlat);
+    pommel.position.y = -.16; g.add(pommel);
+    g.traverse((m) => { if (m.isMesh) m.castShadow = true; });
+    return g;
+  }
+  {
+    // plunged point-down into the big heap beside the crown, leaning
+    const h = heaps[0];
+    const a = sword();
+    a.rotation.set(Math.PI + .1, .5, -.3);
+    const ax = h.x - .3, az = h.z + .05;
+    a.position.set(ax, groundAt(ax, az) + h.h * .5 + .55, az);
+    a.scale.setScalar(1.6);
+    group.add(a);
+    // lying across the front of the first heap
+    const f = heaps[0];
+    const b = sword();
+    b.rotation.set(-Math.PI / 2 + .1, 0, 1.2);
+    const bx = f.x + .25, bz = f.z + .32;
+    b.position.set(bx, groundAt(bx, bz) + .06, bz);
+    b.scale.setScalar(1.6);
+    group.add(b);
+    tops.push(b.position.clone().add(new THREE.Vector3(0, .04, 0)));
   }
 
   // ---- small open chest
@@ -108,11 +136,11 @@ export function makeTreasure(scene, surfaces, heaps, chestAt) {
     const band = new THREE.MeshStandardMaterial({ color: 0xb08a3a, metalness: .8, roughness: .4 });
     const box = new THREE.Mesh(new THREE.BoxGeometry(.62, .34, .4), wood);
     box.position.y = .17; chest.add(box);
-    drawClock();
-    const clock = new THREE.Mesh(new THREE.PlaneGeometry(.44, .19), new THREE.MeshBasicMaterial({ map: clockTex, toneMapped: false }));
-    clock.position.set(0, .16, .202);
-    chest.add(clock);
-    for (const bx of [-.275, .275]) {   // bands at the corners, clear of the clock
+    // a gold lock plate on the front
+    const lock = new THREE.Mesh(new THREE.BoxGeometry(.09, .11, .02), goldFlat);
+    lock.position.set(0, .25, .205);
+    chest.add(lock);
+    for (const bx of [-.275, .275]) {   // bands at the corners
       const b = new THREE.Mesh(new THREE.BoxGeometry(.05, .36, .42), band);
       b.position.set(bx, .17, 0); chest.add(b);
     }
@@ -167,7 +195,6 @@ export function makeTreasure(scene, surfaces, heaps, chestAt) {
 
   return {
     update(t) {
-      drawClock();
       glintMat.uniforms.uTime.value = t;
     },
   };

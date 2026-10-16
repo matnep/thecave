@@ -2,13 +2,23 @@
 // never the same one twice running:
 //   ducks — a mother and ducklings paddle out from behind the left column and away behind the right pillar
 //   ship  — a pirate ship sails past on the water beyond the cave mouth
-//   fish  — a fish (sometimes two or three) leaps out of the channel with a splash
+//   fish  — a fish (sometimes two) leaps out of the channel with a splash
+// Nothing swims through rock: `clearance` (see clearance.js) says how much open water surrounds any point, so
+// swimmers steer away before they reach a rock and can never move deeper into one; fish only jump over open water.
 import * as THREE from 'three';
 
 const flat = (color, extra = {}) => new THREE.MeshStandardMaterial({ color, roughness: .7, flatShading: true, ...extra });
 const ease = (x) => x * x * (3 - 2 * x);
 
-export function createLife(scene, { groundY, MOUTH }) {
+export function createLife(scene, { groundY, MOUTH, clearance }) {
+  const open = (x, z) => (clearance ? clearance.clear(x, z) : 9);
+  // is there at least `r` of open water all along the straight line from a to b?
+  const clearLine = (ax, az, bx, bz, r) => {
+    const n = Math.max(2, Math.ceil(Math.hypot(bx - ax, bz - az) / .15));
+    for (let i = 0; i <= n; i++) if (open(ax + (bx - ax) * i / n, az + (bz - az) * i / n) < r) return false;
+    return true;
+  };
+  const awayDir = { x: 0, z: 0 };
   // ------------------------------------------------------------ ripples on the water
   // a fixed pool, reused round-robin, so ripples never allocate while running
   const rippleGeo = new THREE.RingGeometry(.8, 1, 40);
@@ -46,25 +56,92 @@ export function createLife(scene, { groundY, MOUTH }) {
   }
 
   // ------------------------------------------------------------ ducks
-  // An articulated duck: root (heading) → tilt (pitch/roll) → body, tail pivot, neck pivot (head + beak).
+  // An articulated low-poly duck: root (heading) → tilt (pitch/roll) → body, wings, tail pivot, neck pivot (head, bill, eyes).
+  // The body is one sculpted, face-painted mesh: darker back, paler belly, a chestnut breast and dark stern on the drake.
+  const DUCK = {
+    drake: { back: 0x8d877c, side: 0xc3bdb0, belly: 0xd8d2c6, breast: 0x6e3b26, stern: 0x262220, head: 0x24563a, bill: 0xd8b03a, wing: 0x7e7668 },
+    hen: { back: 0x5f4129, side: 0x8a6444, belly: 0xb08a66, breast: 0x8a6444, stern: 0x5f4129, head: 0x7a5638, bill: 0xc8782a, wing: 0x56391f },
+    chick: { back: 0xc9a034, side: 0xedca50, belly: 0xf6df86, breast: 0xedca50, stern: 0xc9a034, head: 0xf0d05a, bill: 0xe08c2a, wing: 0xd9b440 },
+  };
+  const vc = (geo) => new THREE.Mesh(geo, flat(0xffffff, { vertexColors: true }));
+  function paintFaces(geo, pick) {
+    const p = geo.attributes.position, col = new Float32Array(p.count * 3), c = new THREE.Color();
+    for (let f = 0; f < p.count; f += 3) {
+      const x = (p.getX(f) + p.getX(f + 1) + p.getX(f + 2)) / 3, y = (p.getY(f) + p.getY(f + 1) + p.getY(f + 2)) / 3, z = (p.getZ(f) + p.getZ(f + 1) + p.getZ(f + 2)) / 3;
+      c.setHex(pick(x, y, z));
+      c.multiplyScalar(.92 + Math.sin(f * 12.9898) * .08);    // a little face-to-face variation, like feathers
+      for (let k = 0; k < 3; k++) col.set([c.r, c.g, c.b], (f + k) * 3);
+    }
+    geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    return geo;
+  }
+  function duckBody(kind) {
+    const pal = DUCK[kind];
+    const g = new THREE.IcosahedronGeometry(1, 2).toNonIndexed();
+    const p = g.attributes.position;
+    for (let i = 0; i < p.count; i++) {
+      const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+      let X = x * .34, Y = y * .16, Z = z * .2;
+      if (y < 0) Y *= .72;                                   // flat underside sitting in the water
+      else Y *= .92;
+      if (x > 0) Y *= 1 + x * .18;                           // full breast
+      if (x < -.3) {                                         // tapering, upturned tail end
+        const t = (-x - .3) / .7;
+        Z *= 1 - .62 * t; Y *= 1 - .4 * t; Y += t * t * .1;
+      }
+      p.setXYZ(i, X, Y + .07, Z);
+    }
+    g.computeVertexNormals();
+    return paintFaces(g, (x, y) => {
+      if (kind === 'drake' && x > .16 && y < .17) return pal.breast;
+      if (x < -.24 && kind === 'drake') return pal.stern;
+      if (y > .14) return pal.back;
+      if (y < .05) return pal.belly;
+      return pal.side;
+    });
+  }
   function makeDuck(kind) {
+    const pal = DUCK[kind];
     const root = new THREE.Group(), tilt = new THREE.Group(), neck = new THREE.Group(), tail = new THREE.Group();
     root.add(tilt);
-    const body = kind === 'drake' ? 0xd8cfbd : kind === 'hen' ? 0x8a6444 : 0xe6c24a;
-    const head = kind === 'drake' ? 0x2f5e3c : kind === 'hen' ? 0x6e4e34 : 0xeccf5a;
-    const mesh = (parent, geo, color, pos, scale, rot = [0, 0, 0]) => {
+    const mesh = (parent, geo, color, pos, scale = [1, 1, 1], rot = [0, 0, 0]) => {
       const m = new THREE.Mesh(geo, flat(color));
       m.position.set(...pos); m.scale.set(...scale); m.rotation.set(...rot);
       m.castShadow = true; parent.add(m); return m;
     };
-    mesh(tilt, new THREE.IcosahedronGeometry(1, 1), body, [0, .07, 0], [.3, .17, .2]);
-    tail.position.set(-.25, .1, 0); tilt.add(tail);
-    mesh(tail, new THREE.ConeGeometry(.08, .2, 4), body, [-.06, .03, 0], [1, 1, .6], [0, 0, Math.PI / 2 + .5]);
-    neck.position.set(.19, .13, 0); tilt.add(neck);
-    mesh(neck, new THREE.IcosahedronGeometry(1, 0), head, [.05, .11, 0], [.12, .12, .11]);
-    mesh(neck, new THREE.ConeGeometry(.05, .15, 4), 0xe3902c, [.19, .09, 0], [1, 1, .7], [0, 0, -Math.PI / 2]);
-    if (kind === 'drake') mesh(neck, new THREE.TorusGeometry(.08, .015, 4, 10), 0xf2efe6, [.01, .04, 0], [1, 1, 1], [0, Math.PI / 2, 0]);
-    root.userData = { tilt, neck, tail, size: (kind === 'chick' ? .55 : 1) * 1.8 };
+    const body = vc(duckBody(kind));
+    body.castShadow = true;
+    tilt.add(body);
+    // folded wings along the sides, on pivots so they can give a little shake
+    const wings = [-1, 1].map((s) => {
+      const pivot = new THREE.Group();
+      pivot.position.set(.04, .15, s * .115);
+      tilt.add(pivot);
+      mesh(pivot, new THREE.IcosahedronGeometry(1, 1), pal.wing, [-.1, 0, 0], [.2, .06, .035], [0, s * .08, .16]);
+      return pivot;
+    });
+    tail.position.set(-.3, .15, 0); tilt.add(tail);
+    mesh(tail, new THREE.ConeGeometry(.07, .14, 4), pal.stern, [-.04, .03, 0], [1, 1, .55], [0, 0, Math.PI / 2 + .7]);
+    if (kind === 'drake') mesh(tail, new THREE.TorusGeometry(.03, .008, 3, 6, Math.PI * 1.4), 0x1c1a18, [.0, .08, 0], [1, 1, 1], [0, 0, .5]);   // the curl
+    // neck and head
+    neck.position.set(.21, .14, 0); tilt.add(neck);
+    mesh(neck, new THREE.CylinderGeometry(.055, .075, .13, 6), kind === 'drake' ? pal.head : pal.side, [.0, .05, 0], [1, 1, .9], [0, 0, -.25]);
+    if (kind === 'drake') mesh(neck, new THREE.CylinderGeometry(.062, .066, .018, 8), 0xf2efe6, [.005, .01, 0], [1, 1, .95], [0, 0, -.25]);   // white collar
+    mesh(neck, new THREE.IcosahedronGeometry(1, 1), pal.head, [.06, .15, 0], [.1, .09, .08]);
+    // flat, wide bill, a touch wider at the tip
+    const billGeo = new THREE.BoxGeometry(.11, .028, .06, 2, 1, 1);
+    {
+      const bp = billGeo.attributes.position;
+      for (let i = 0; i < bp.count; i++) {
+        const x = bp.getX(i);
+        bp.setZ(i, bp.getZ(i) * (x > 0 ? 1.12 : .9));
+        if (x > .05) bp.setY(i, bp.getY(i) * .7 - .004);
+      }
+    }
+    mesh(neck, billGeo, pal.bill, [.195, .13, 0], [1, 1, 1], [0, 0, -.12]);
+    for (const s of [-1, 1]) mesh(neck, new THREE.IcosahedronGeometry(.015, 0), 0x0b0908, [.115, .175, s * .062]);
+    if (kind === 'hen') for (const s of [-1, 1]) mesh(neck, new THREE.BoxGeometry(.06, .01, .005), 0x4a3220, [.085, .165, s * .077]);   // eye stripe
+    root.userData = { tilt, neck, tail, wings, size: (kind === 'chick' ? .55 : 1) * 1.8 };
     root.scale.setScalar(root.userData.size);
     return root;
   }
@@ -90,15 +167,38 @@ export function createLife(scene, { groundY, MOUTH }) {
     }
     get speed() { return this.vel.length(); }
     setSize(size) { this.size = size; this.duck.userData.size = size; this.duck.scale.setScalar(size); }
+    get radius() { return .2 * this.size; }      // about half the body's width
     steer(dt, tx, tz, maxSpeed, arrive = .8) {
       const d = tmpD.set(tx - this.pos.x, tz - this.pos.y);
       const dist = d.length();
-      const acc = (dist > 1e-4 ? d.multiplyScalar(maxSpeed * Math.min(1, dist / arrive) / dist) : d.set(0, 0)).sub(this.vel);
-      const maxAcc = .55 * dt;
+      const want = dist > 1e-4 ? d.multiplyScalar(maxSpeed * Math.min(1, dist / arrive) / dist) : d.set(0, 0);
+      // rock ahead? veer toward open water, harder the closer it gets
+      const safe = this.radius + .4;
+      const lx = this.pos.x + this.vel.x * 1.2, lz = this.pos.y + this.vel.y * 1.2;
+      const ahead = Math.min(open(lx, lz), open(this.pos.x, this.pos.y));
+      if (ahead < safe && clearance) {
+        clearance.away(lx, lz, awayDir);
+        const push = (safe - ahead) / safe * Math.max(.25, maxSpeed) * 2.2;
+        want.x += awayDir.x * push; want.y += awayDir.z * push;
+      }
+      const acc = want.sub(this.vel);
+      const maxAcc = .7 * dt;
       if (acc.length() > maxAcc) acc.setLength(maxAcc);
       this.vel.add(acc);
       if (this.dabble >= 0) this.vel.multiplyScalar(1 - Math.min(1, dt * 3));   // stops to feed
-      this.pos.addScaledVector(this.vel, dt);
+      // move, but never deeper into rock: drop any part of the step that heads into it (it slides along instead)
+      let mx = this.vel.x * dt, mz = this.vel.y * dt;
+      const nx = this.pos.x + mx, nz = this.pos.y + mz;
+      if (clearance && open(nx, nz) < this.radius && open(nx, nz) < open(this.pos.x, this.pos.y)) {
+        clearance.away(nx, nz, awayDir);
+        const into = mx * awayDir.x + mz * awayDir.z;
+        if (into < 0) {
+          mx -= awayDir.x * into; mz -= awayDir.z * into;
+          const vin = this.vel.x * awayDir.x + this.vel.y * awayDir.z;
+          if (vin < 0) { this.vel.x -= awayDir.x * vin; this.vel.y -= awayDir.z * vin; }
+        }
+      }
+      this.pos.x += mx; this.pos.y += mz;
       return dist;
     }
     update(t, dt, { idle = false } = {}) {
@@ -125,6 +225,8 @@ export function createLife(scene, { groundY, MOUTH }) {
       if (this.wag <= 0 && Math.random() < dt * (idle ? .25 : .05)) this.wag = .6;
       this.wag = Math.max(0, this.wag - dt);
       tail.rotation.y = Math.sin(t * 22) * .5 * Math.min(1, this.wag * 3);
+      const { wings } = this.duck.userData;
+      if (wings) wings.forEach((w, i) => { w.rotation.x = (i ? 1 : -1) * Math.max(0, Math.sin(t * 30)) * .35 * Math.min(1, this.wag * 2); });
 
       // dabble: tips forward, tail up, head under, comes back up
       let dip = 0;
@@ -147,10 +249,11 @@ export function createLife(scene, { groundY, MOUTH }) {
     remove() { scene.remove(this.duck); }
   }
 
-  // a mother and ducklings paddle out from behind the left column and away behind the right pillar
+  // a mother and ducklings paddle out from behind the left column, through the gap between the mid-channel
+  // rocks and upstream, away behind the right pillar. The route is checked against the clearance map: open water all the way.
   function ducks() {
     const path = new THREE.CatmullRomCurve3([
-      [-6.6, -6.4], [-5.2, -4.8], [-3.6, -3.4], [-1.6, -2.4], [.5, -2.3], [2.0, -3.5], [3.8, -5.6], [5.2, -6.6],
+      [-6.6, -6.4], [-5.2, -4.8], [-3.6, -3.5], [-1.8, -3.3], [-.5, -3.7], [.25, -4.8], [1.2, -6.3], [3.4, -6.5], [4.6, -6.8],
     ].map(([x, z]) => new THREE.Vector3(x, 0, z)));
     const LEN = path.getLength(), CRUISE = .3;
     const kinds = ['hen', 'chick', 'chick', 'chick', ...(Math.random() < .5 ? ['drake'] : [])];
@@ -249,29 +352,46 @@ export function createLife(scene, { groundY, MOUTH }) {
   // ------------------------------------------------------------ jumping fish
   // Rises from under the water (the water surface hides it until it breaks through), nose follows the arc,
   // tail beats, and it splashes exactly where it leaves and re-enters the surface.
-  const fishMat = flat(0xd9884c, { metalness: .35, roughness: .4, side: THREE.DoubleSide });
+  // Low-poly trout-ish fish: face-painted body (dark speckled back, golden sides, pale belly), forked tail,
+  // dorsal, pectoral and anal fins, and an eye.
+  const finMat = flat(0xb8703a, { metalness: .2, roughness: .5, side: THREE.DoubleSide });
+  const fishBodyMat = flat(0xffffff, { vertexColors: true, metalness: .3, roughness: .42 });
   function makeFish() {
     const g = new THREE.Group();
-    const bodyGeo = new THREE.IcosahedronGeometry(1, 2);
+    const bodyGeo = new THREE.IcosahedronGeometry(1, 2).toNonIndexed();
     const p = bodyGeo.attributes.position;
     for (let i = 0; i < p.count; i++) {
-      const x = p.getX(i), k = x < 0 ? 1 + x * .72 : 1 - x * x * .15;   // taper to the tail, blunt nose
-      p.setY(i, p.getY(i) * k); p.setZ(i, p.getZ(i) * k);
+      const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+      const k = x < 0 ? 1 + x * .8 : 1 - x * x * .28;       // taper to the tail, blunt nose
+      p.setXYZ(i, x * .32, y * .12 * k * (y > 0 ? 1.1 : .95), z * .055 * k);
     }
-    bodyGeo.scale(.3, .11, .065);
     bodyGeo.computeVertexNormals();
-    g.add(new THREE.Mesh(bodyGeo, fishMat));
+    paintFaces(bodyGeo, (x, y) => {
+      if (y > .055) return Math.sin(x * 97 + y * 41) > .55 ? 0x2c2a18 : 0x5a5630;   // speckled back
+      if (y > -.02) return 0xc98a48;
+      return 0xeedcb4;
+    });
+    const body = new THREE.Mesh(bodyGeo, fishBodyMat);
+    g.add(body);
+    const tri = (pts) => { const s = new THREE.Shape(); s.moveTo(...pts[0]); for (const q of pts.slice(1)) s.lineTo(...q); return new THREE.ShapeGeometry(s); };
     // forked tail on a pivot so it can beat
     const tail = new THREE.Group();
-    tail.position.x = -.27;
-    const fork = new THREE.Shape();
-    fork.moveTo(0, 0); fork.lineTo(-.17, .12); fork.lineTo(-.11, 0); fork.lineTo(-.17, -.12); fork.lineTo(0, 0);
-    tail.add(new THREE.Mesh(new THREE.ShapeGeometry(fork), fishMat));
+    tail.position.x = -.29;
+    tail.add(new THREE.Mesh(tri([[0, 0], [-.07, .05], [-.18, .13], [-.14, .02], [-.15, 0], [-.14, -.02], [-.18, -.13], [-.07, -.05]]), finMat));
     g.add(tail);
-    const fin = new THREE.Shape();
-    fin.moveTo(.06, 0); fin.lineTo(-.06, .09); fin.lineTo(-.1, 0);
-    const dorsal = new THREE.Mesh(new THREE.ShapeGeometry(fin), fishMat);
-    dorsal.position.y = .09; g.add(dorsal);
+    const dorsal = new THREE.Mesh(tri([[.08, 0], [.02, .07], [-.06, .085], [-.1, 0]]), finMat);
+    dorsal.position.y = .1; g.add(dorsal);
+    const anal = new THREE.Mesh(tri([[-.08, 0], [-.13, -.05], [-.17, 0]]), finMat);
+    anal.position.y = -.06; g.add(anal);
+    for (const s of [-1, 1]) {
+      const pec = new THREE.Mesh(tri([[0, 0], [-.09, -.03], [-.07, .02]]), finMat);
+      pec.position.set(.14, -.04, s * .045); pec.rotation.x = s * .6;
+      g.add(pec);
+      const eye = new THREE.Mesh(new THREE.IcosahedronGeometry(.016, 0), flat(0xf1e8d2));
+      eye.position.set(.25, .025, s * .035); g.add(eye);
+      const pupil = new THREE.Mesh(new THREE.IcosahedronGeometry(.009, 0), flat(0x050404));
+      pupil.position.set(.262, .025, s * .045); g.add(pupil);
+    }
     g.userData.tail = tail;
     g.scale.setScalar(1.6);
     return g;
@@ -279,12 +399,13 @@ export function createLife(scene, { groundY, MOUTH }) {
   function fish() {
     const list = [];
     const n = Math.random() < .3 ? 2 : 1;
-    for (let tries = 0; list.length < n && tries < 30; tries++) {
+    for (let tries = 0; list.length < n && tries < 80; tries++) {
       const z = -6 + Math.random() * 7;
       const x = -2 + Math.random() * 4;
       const dir = Math.random() < .5 ? 1 : -1;
       const L = 2 + Math.random() * .7;
       if (groundY(x, z) > -.2 || groundY(x + dir * L, z) > -.2) continue;   // open water at both ends
+      if (!clearLine(x - dir * .4, z, x + dir * (L + .4), z, .55)) continue;   // and no rock anywhere under the arc
       list.push({ f: makeFish(), x, z, dir, L, H: .85 + Math.random() * .4, T: 1.2 + Math.random() * .2,
         start: list.length * (1.4 + Math.random()), above: false, done: false });
     }
@@ -324,9 +445,10 @@ export function createLife(scene, { groundY, MOUTH }) {
     for (let i = 0; i < 40; i++) {
       // open water left of the mid-channel rock, so it never paddles out of sight
       const x = -2.2 + Math.random() * 2.3, z = .9 + Math.random() * 2.9;
-      if (groundY(x, z) < -.25 && Math.hypot(x - .9, z - .9) > 1.7 && Math.hypot(x - lost.pos.x, z - lost.pos.y) > 1) return { x, z };
+      if (groundY(x, z) < -.25 && Math.hypot(x - .9, z - .9) > 1.7 && Math.hypot(x - lost.pos.x, z - lost.pos.y) > 1
+        && open(x, z) > lost.radius + .4 && clearLine(lost.pos.x, lost.pos.y, x, z, lost.radius + .1)) return { x, z };
     }
-    return { x: -1.1, z: 2.4 };
+    return { x: lost.pos.x, z: lost.pos.y };       // nowhere good: stay put a while longer
   }
   function updateLost(t, dt) {
     let idle = true;
