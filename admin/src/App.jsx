@@ -100,6 +100,12 @@ function NowOnTv({ state, act }) {
             </>
           ) : <p className="text-muted-foreground">{label}</p>}
         </div>
+        {state.settings.sponsors === false && (
+          <div className="flex items-center justify-between gap-3 rounded-lg border border-dashed p-2.5 text-sm text-muted-foreground">
+            <span>Partner logos are switched off, so they won't appear on the TV.</span>
+            <Button size="sm" variant="secondary" onClick={() => act('sponsors', { on: true }, 'Partner logos on')}>Turn on</Button>
+          </div>
+        )}
         <TvRemote state={state} act={act} />
       </CardContent>
     </Card>

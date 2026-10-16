@@ -1,7 +1,7 @@
 // The TV, as a stylised hand-painted game prop: a chunky chamfered wooden cabinet that tapers a little
 // towards the top, a thick bezel, oversized low-poly knobs, splayed stubby legs and bent rabbit ears.
 // Faces get flat painted colours (lighter on top, darker underneath) to match the cave's art style,
-// with scuffs and worn patches, and the glass has a cracked corner from years in the cave.
+// with scuffs and worn patches, and the glass has a shattered corner (with depth) from years in the cave.
 // The glass shows `screenTex` through a CRT shader (barrel, scanlines, static, rolling band).
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
@@ -10,8 +10,11 @@ import { mergeStatic } from './merge.js';
 const hex = (h) => new THREE.Color(h);
 const SCUFF = hex(0xc9a072);
 
-// cracks spreading from a knock in the top-right corner of the glass.
-// R = bright edge of the crack, G = dark halo. Kept clear of the QR so it always scans.
+// A spider-web crack from a knock in the top-right corner of the glass, with depth:
+//   R = lit edge of each crack, G = its shadowed edge (offset, so every crack reads as a ridge in the glass),
+//   B = which shard a pixel belongs to (each shard is tilted a little differently, so it bends the picture
+//       behind it and catches the light differently). 0 = intact glass.
+// Kept clear of the QR so it always scans.
 function crackTexture() {
   const W = 1024, H = 768;
   const c = document.createElement('canvas');
@@ -19,33 +22,75 @@ function crackTexture() {
   const x = c.getContext('2d');
   let seed = 11;
   const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
-  const paths = [];
-  const branch = (px, py, ang, len, depth) => {
+  const IX = 958, IY = 70;                                // impact point
+  const inQr = (px, py) => px > 236 && px < 788 && py > 30 && py < 586;   // the QR plus a margin
+  const STEP = 14;
+  // a crack wanders away from the impact in small steps, and stops before it reaches the QR
+  const walk = (px, py, a, steps, wiggle = .22) => {
     const pts = [[px, py]];
-    for (let s = 0; s < len; s += 14) {
-      ang += (rnd() - .5) * .5;
-      px += Math.cos(ang) * 14; py += Math.sin(ang) * 14;
+    for (let k = 0; k < steps; k++) {
+      a += (rnd() - .5) * wiggle;
+      px += Math.cos(a) * STEP; py += Math.sin(a) * STEP;
+      if (inQr(px, py) || px < 0 || py > H || px > W) break;
       pts.push([px, py]);
-      if (depth < 2 && rnd() < .07) branch(px, py, ang + (rnd() < .5 ? .7 : -.7), len * .45, depth + 1);
     }
-    paths.push(pts);
+    return pts;
   };
-  const IX = 952, IY = 78;                                // impact point
-  for (let i = 0; i < 7; i++) branch(IX, IY, Math.PI * (.45 + i * .16) + (rnd() - .5) * .2, 120 + rnd() * 190, 0);
-  // a little ring of shattered glass round the impact
-  x.save();
-  x.beginPath(); x.rect(0, 0, W, H); x.rect(212, 52, 600, 600); x.clip('evenodd');   // never over the QR
-  x.lineCap = 'round';
-  for (const [w, color] of [[7, 'rgb(0,255,0)'], [1.6, 'rgb(255,0,0)']]) {
-    x.globalCompositeOperation = 'lighter';
-    x.strokeStyle = color; x.lineWidth = w;
-    for (const pts of paths) {
-      x.beginPath(); x.moveTo(...pts[0]);
-      for (const p of pts.slice(1)) x.lineTo(...p);
-      x.stroke();
-    }
-    x.beginPath(); x.arc(IX, IY, 16, 0, 6.283); x.stroke();
+  // main cracks fanning out from the corner, long and short, spread unevenly
+  const SPOKES = 8;
+  const spokes = [];
+  for (let i = 0; i < SPOKES; i++) {
+    const a = Math.PI * (.16 + (i + rnd() * .6) * .1);
+    spokes.push(walk(IX, IY, a, 14 + Math.floor(rnd() * 36), .18));
   }
+  const lines = [...spokes];
+  // a few branches splitting off the long ones
+  for (const s of spokes) {
+    for (let k = 4; k < s.length - 3; k += 5 + Math.floor(rnd() * 6)) {
+      if (rnd() < .45) continue;
+      const [px, py] = s[k], [qx, qy] = s[k - 1];
+      const a = Math.atan2(py - qy, px - qx) + (rnd() < .5 ? -1 : 1) * (.45 + rnd() * .4);
+      lines.push(walk(px, py, a, 3 + Math.floor(rnd() * 9), .35));
+    }
+  }
+  // near the impact the glass breaks into pieces: rings of short cracks between neighbouring spokes
+  const RINGS = [2, 4, 7];
+  const at = (s, k) => s[Math.min(k, s.length - 1)];
+  x.save();
+  x.beginPath(); x.rect(0, 0, W, H); x.rect(236, 30, 552, 556); x.clip('evenodd');   // belt and braces: never over the QR
+  x.globalCompositeOperation = 'lighter';
+  // shards (B): each cell between two spokes and two rings, a different tilt each
+  for (let i = 0; i < SPOKES - 1; i++) {
+    const A = spokes[i], B = spokes[i + 1];
+    let prev = 0;
+    for (const k of RINGS) {
+      if (k >= A.length || k >= B.length) break;
+      x.fillStyle = `rgb(0,0,${Math.round(60 + rnd() * 195)})`;
+      x.beginPath();
+      x.moveTo(...at(A, prev));
+      for (let j = prev + 1; j <= k; j++) x.lineTo(...at(A, j));
+      for (let j = k; j >= prev; j--) x.lineTo(...at(B, j));
+      x.closePath(); x.fill();
+      if (rnd() < .7) lines.push([at(A, k), [(at(A, k)[0] + at(B, k)[0]) / 2 + (rnd() - .5) * 8, (at(A, k)[1] + at(B, k)[1]) / 2 + (rnd() - .5) * 8], at(B, k)]);
+      prev = k;
+    }
+  }
+  // the cracks: a shadow (G, offset down-right) under a thin lit edge (R, offset up-left), so each reads as a ridge
+  x.lineCap = 'round'; x.lineJoin = 'round';
+  for (const [w, color, ox, oy] of [[7, 'rgb(0,255,0)', 3, 3.5], [2.2, 'rgb(255,0,0)', -1, -1]]) {
+    x.strokeStyle = color;
+    for (const pts of lines) {
+      if (pts.length < 2) continue;
+      // cracks thin out as they run away from the impact
+      for (let k = 1; k < pts.length; k++) {
+        x.lineWidth = w * Math.max(.4, 1 - k / 40);
+        x.beginPath(); x.moveTo(pts[k - 1][0] + ox, pts[k - 1][1] + oy); x.lineTo(pts[k][0] + ox, pts[k][1] + oy); x.stroke();
+      }
+    }
+  }
+  // crushed glass right at the impact
+  x.fillStyle = 'rgb(160,80,0)';
+  x.beginPath(); x.arc(IX, IY, 14, 0, 6.283); x.fill();
   x.restore();
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.NoColorSpace;
@@ -120,6 +165,10 @@ export function makeTV(screenTex) {
       void main(){
         vec2 c = vUv - .5;
         vec2 uv = .5 + c * (1. + .05 * dot(c, c));
+        vec4 cr = texture2D(uCrack, vUv);
+        // each broken shard sits at a slightly different angle: it shifts the picture behind it
+        float shard = cr.b > .1 ? cr.b - .6 : 0.;
+        uv += vec2(shard * .007, -shard * .005);
         uv.x += sin(uv.y * 38. + uTime * 2.7) * .0006 * (1. + uStatic * 14.) * (1. - uFocus);
         float ab = .0011 * (1. - uFocus);
         vec3 col = vec3(texture2D(uMap, uv + vec2(ab, 0.)).r, texture2D(uMap, uv).g, texture2D(uMap, uv - vec2(ab, 0.)).b);
@@ -129,10 +178,12 @@ export function makeTV(screenTex) {
         float n = hash(floor(vUv * vec2(300., 225.)) + fract(uTime * 9.) * 97.);
         col = mix(col, vec3(n * .95, n * .82, n * .62), uStatic);
         col *= mix(.5 + .5 * smoothstep(.78, .3, length(c * vec2(1.05, 1.2))), 1., uFocus * .8);
-        vec4 cr = texture2D(uCrack, vUv);
-        const float CRACK = .5;                            // crack strength (1 = full)
-        col *= 1. - clamp(cr.g - cr.r, 0., 1.) * .55 * CRACK;   // dark halo along the cracks
-        col += cr.r * vec3(.85, .8, .7) * .32 * CRACK;           // light catching the broken edge
+        const float CRACK = .6;                            // crack strength (1 = full)
+        col *= 1. + shard * .35 * CRACK;                         // shards tilted toward / away from the light
+        // each shard reflects a little of the room at its own angle: visible even over the dark glass
+        col += (cr.b > .1 ? .025 + (shard + .4) * .07 : 0.) * vec3(1., .82, .6) * CRACK;
+        col *= 1. - clamp(cr.g - cr.r, 0., 1.) * .8 * CRACK;     // the shadowed side of each crack
+        col += cr.r * vec3(1., .92, .8) * .45 * CRACK;           // light catching the broken edge
         if (uv.x < 0. || uv.x > 1. || uv.y < 0. || uv.y > 1.) col = vec3(0.);
         gl_FragColor = vec4(col, 1.);
       }`,

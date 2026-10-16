@@ -75,9 +75,11 @@ export function createLife(scene, { groundY, MOUTH, clearance }) {
     geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
     return geo;
   }
+  // a chunky low-poly hull: a 6-sided spindle along x (pointed at both ends), so every face is a big flat plane
+  const hull = (around = 6, along = 5) => new THREE.SphereGeometry(1, around, along).rotateZ(Math.PI / 2).toNonIndexed();
   function duckBody(kind) {
     const pal = DUCK[kind];
-    const g = new THREE.IcosahedronGeometry(1, 2).toNonIndexed();
+    const g = hull(6, 5);
     const p = g.attributes.position;
     for (let i = 0; i < p.count; i++) {
       const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
@@ -117,19 +119,19 @@ export function createLife(scene, { groundY, MOUTH, clearance }) {
       const pivot = new THREE.Group();
       pivot.position.set(.04, .15, s * .115);
       tilt.add(pivot);
-      mesh(pivot, new THREE.IcosahedronGeometry(1, 1), pal.wing, [-.1, 0, 0], [.2, .06, .035], [0, s * .08, .16]);
+      mesh(pivot, new THREE.OctahedronGeometry(1, 0), pal.wing, [-.1, 0, 0], [.2, .06, .035], [0, s * .08, .16]);
       return pivot;
     });
     tail.position.set(-.3, .15, 0); tilt.add(tail);
     mesh(tail, new THREE.ConeGeometry(.07, .14, 4), pal.stern, [-.04, .03, 0], [1, 1, .55], [0, 0, Math.PI / 2 + .7]);
-    if (kind === 'drake') mesh(tail, new THREE.TorusGeometry(.03, .008, 3, 6, Math.PI * 1.4), 0x1c1a18, [.0, .08, 0], [1, 1, 1], [0, 0, .5]);   // the curl
+    if (kind === 'drake') mesh(tail, new THREE.TorusGeometry(.03, .008, 3, 4, Math.PI * 1.4), 0x1c1a18, [.0, .08, 0], [1, 1, 1], [0, 0, .5]);   // the curl
     // neck and head
     neck.position.set(.21, .14, 0); tilt.add(neck);
-    mesh(neck, new THREE.CylinderGeometry(.055, .075, .13, 6), kind === 'drake' ? pal.head : pal.side, [.0, .05, 0], [1, 1, .9], [0, 0, -.25]);
+    mesh(neck, new THREE.CylinderGeometry(.055, .075, .13, 5), kind === 'drake' ? pal.head : pal.side, [.0, .05, 0], [1, 1, .9], [0, 0, -.25]);
     if (kind === 'drake') mesh(neck, new THREE.CylinderGeometry(.062, .066, .018, 8), 0xf2efe6, [.005, .01, 0], [1, 1, .95], [0, 0, -.25]);   // white collar
-    mesh(neck, new THREE.IcosahedronGeometry(1, 1), pal.head, [.06, .15, 0], [.1, .09, .08]);
+    mesh(neck, new THREE.IcosahedronGeometry(1, 0), pal.head, [.06, .15, 0], [.1, .09, .08]);
     // flat, wide bill, a touch wider at the tip
-    const billGeo = new THREE.BoxGeometry(.11, .028, .06, 2, 1, 1);
+    const billGeo = new THREE.BoxGeometry(.11, .028, .06, 1, 1, 1);
     {
       const bp = billGeo.attributes.position;
       for (let i = 0; i < bp.count; i++) {
@@ -358,11 +360,11 @@ export function createLife(scene, { groundY, MOUTH, clearance }) {
   const fishBodyMat = flat(0xffffff, { vertexColors: true, metalness: .3, roughness: .42 });
   function makeFish() {
     const g = new THREE.Group();
-    const bodyGeo = new THREE.IcosahedronGeometry(1, 2).toNonIndexed();
+    const bodyGeo = hull(6, 6);
     const p = bodyGeo.attributes.position;
     for (let i = 0; i < p.count; i++) {
       const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
-      const k = x < 0 ? 1 + x * .8 : 1 - x * x * .28;       // taper to the tail, blunt nose
+      const k = x < 0 ? 1 + x * .55 : 1 - x * x * .1;       // taper to the tail, blunt nose
       p.setXYZ(i, x * .32, y * .12 * k * (y > 0 ? 1.1 : .95), z * .055 * k);
     }
     bodyGeo.computeVertexNormals();

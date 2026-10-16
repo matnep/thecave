@@ -1,7 +1,7 @@
 // What's on the TV. Draws onto a 1024x768 canvas that the 3D scene uses as the CRT texture.
 // Three things show: the QR code (with one caption line), partner logos and audience questions.
 // Automatic (a slideshow): new questions go up straight away; otherwise the TV cycles
-//   QR → up to QS_PER_ROUND approved questions → one partner logo → QR …
+//   QR → up to QS_PER_ROUND approved questions → every partner logo, one after another → QR …
 // so every approved question keeps coming back until it's marked answered or hidden in the admin.
 // Manual (presenter keys / admin remote): → next question, ← previous, ↑ the QR, ↓ back to the slideshow.
 // While manual, whatever was picked stays up; new questions still sound the alarm and wait their turn.
@@ -82,7 +82,6 @@ export class TVScreen {
     img.onload = () => { this.qr = invertQr(img, QR_SIZE); this.dirty = true; };
     img.src = '/api/qr.svg';
     this.partners = [];
-    this.partnerAt = 0;             // whose turn is next
     this.sponsors = true;           // admin switch
     const strip = new Image();
     strip.onload = () => { this.partners = splitPartners(strip); };
@@ -141,10 +140,11 @@ export class TVScreen {
     if (!this.manual) this.timer = setTimeout(() => this.next(), QR_HOLD_MS);
   }
 
-  showPartner() {
-    const i = this.partnerAt++ % this.partners.length;
+  // all the partner logos in turn, then the slideshow carries on (a new question cuts in straight away)
+  showPartner(i = 0) {
+    clearTimeout(this.timer);
     this.show({ kind: 'partner', i });
-    this.timer = setTimeout(() => this.next(), PARTNER_MS);
+    this.timer = setTimeout(() => (i + 1 < this.partners.length && this.sponsors ? this.showPartner(i + 1) : this.next()), PARTNER_MS);
   }
 
   showQuestion(m, { instant = false } = {}) {

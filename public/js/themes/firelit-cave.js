@@ -664,8 +664,9 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
   beacon.group.scale.setScalar(1.2);
   tv.add(beacon.group);
   const clock = makeFlipClock();
-  clock.group.position.set(-.5, 2.07, .12);
+  clock.group.position.set(-.5, 2.07, .1);
   clock.group.rotation.y = .12;
+  clock.group.scale.setScalar(1.4);
   tv.add(clock.group);
 
   // the hoard heaped in front of and under the TV
@@ -674,7 +675,7 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
     { x: TV_AT.x + .1, z: TV_AT.z + .85, r: .42, h: .32, n: 130 },
     { x: TV_AT.x + .8, z: TV_AT.z + .7, r: .3, h: .24, n: 80 },
     { x: TV_AT.x - .35, z: TV_AT.z + 1.25, r: .26, h: .14, n: 45 },
-  ], { x: TV_AT.x - .95, z: TV_AT.z + .75, rotY: -.3 });
+  ], { x: TV_AT.x - 1.2, z: TV_AT.z + 1.15, rotY: .5, scale: .9 });
 
   scene.updateMatrixWorld(true);
   const screenWorld = screen.getWorldPosition(new THREE.Vector3());

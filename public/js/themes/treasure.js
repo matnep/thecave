@@ -1,5 +1,5 @@
-// A hoard under the TV, all gold: heaps of coins, a small open chest spilling gold, a crown,
-// a couple of swords, and twinkling glints.
+// A hoard under the TV, all gold: heaps of coins, a crown, a couple of swords and twinkling glints,
+// with an old ship's anchor lying beside it.
 // Everything is dropped onto the real rock/floor surfaces
 // with a raycast so nothing floats or sinks.
 import * as THREE from 'three';
@@ -11,9 +11,9 @@ const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
  * @param scene
  * @param surfaces  meshes to rest things on (the TV's rock, the floor)
  * @param heaps     [{ x, z, r, h, n }]  coin heaps: centre, radius, height, coin count
- * @param chestAt   { x, z, rotY }
+ * @param anchorAt  { x, z, rotY, scale }
  */
-export function makeTreasure(scene, surfaces, heaps, chestAt) {
+export function makeTreasure(scene, surfaces, heaps, anchorAt) {
   const group = new THREE.Group();
   scene.add(group);
   const ray = new THREE.Raycaster();
@@ -113,9 +113,9 @@ export function makeTreasure(scene, surfaces, heaps, chestAt) {
     // plunged point-down into the big heap beside the crown, leaning
     const h = heaps[0];
     const a = sword();
-    a.rotation.set(Math.PI + .1, .5, -.3);
-    const ax = h.x - .3, az = h.z + .05;
-    a.position.set(ax, groundAt(ax, az) + h.h * .5 + .55, az);
+    a.rotation.set(Math.PI + .75, .5, -.35);     // leaning well over, so the hilt stays below the screen
+    const ax = h.x - .3, az = h.z + .2;
+    a.position.set(ax, groundAt(ax, az) + h.h * .5 + .3, az);
     a.scale.setScalar(1.6);
     group.add(a);
     // lying across the front of the first heap
@@ -129,38 +129,39 @@ export function makeTreasure(scene, surfaces, heaps, chestAt) {
     tops.push(b.position.clone().add(new THREE.Vector3(0, .04, 0)));
   }
 
-  // ---- small open chest
-  if (chestAt) {
-    const chest = new THREE.Group();
-    const wood = new THREE.MeshStandardMaterial({ color: 0x5a3018, roughness: .8, flatShading: true });
-    const band = new THREE.MeshStandardMaterial({ color: 0xb08a3a, metalness: .8, roughness: .4 });
-    const box = new THREE.Mesh(new THREE.BoxGeometry(.62, .34, .4), wood);
-    box.position.y = .17; chest.add(box);
-    // a gold lock plate on the front
-    const lock = new THREE.Mesh(new THREE.BoxGeometry(.09, .11, .02), goldFlat);
-    lock.position.set(0, .25, .205);
-    chest.add(lock);
-    for (const bx of [-.275, .275]) {   // bands at the corners
-      const b = new THREE.Mesh(new THREE.BoxGeometry(.05, .36, .42), band);
-      b.position.set(bx, .17, 0); chest.add(b);
+  // ---- a ship's anchor, lying on its side on the ground (low, so it never covers the TV), half sunk in the coins
+  if (anchorAt) {
+    const anchor = new THREE.Group();
+    const iron = new THREE.MeshStandardMaterial({ color: 0x3e3833, roughness: .65, metalness: .7, flatShading: true });
+    const rust = new THREE.MeshStandardMaterial({ color: 0x7a3e1e, roughness: .9, metalness: .2, flatShading: true });
+    const add = (geo, mat, pos, rot = [0, 0, 0]) => {
+      const m = new THREE.Mesh(geo, mat);
+      m.position.set(...pos); m.rotation.set(...rot);
+      m.castShadow = m.receiveShadow = true;
+      anchor.add(m); return m;
+    };
+    // built standing up (shank along y), then laid down below
+    add(new THREE.CylinderGeometry(.045, .055, 1.0, 6), iron, [0, .5, 0]);                      // shank
+    add(new THREE.TorusGeometry(.09, .025, 4, 7), iron, [0, 1.08, 0]);                           // ring
+    add(new THREE.CylinderGeometry(.03, .03, .5, 5), rust, [0, .86, 0], [0, 0, Math.PI / 2]);    // stock (crossbar)
+    for (const sx of [-1, 1]) add(new THREE.IcosahedronGeometry(.04, 0), rust, [sx * .26, .86, 0]);
+    // arms: a faceted arc round the crown of the anchor, ending in flukes
+    const arms = add(new THREE.TorusGeometry(.36, .045, 4, 8, Math.PI), iron, [0, .38, 0], [0, 0, Math.PI]);
+    arms.scale.y = .9;
+    for (const sx of [-1, 1]) {
+      const fluke = add(new THREE.ConeGeometry(.09, .2, 3), iron, [sx * .36, .44, 0], [0, 0, -sx * .35]);
+      fluke.scale.z = .4;
     }
-    const lid = new THREE.Group();
-    lid.position.set(0, .34, -.2);
-    const lidMesh = new THREE.Mesh(new THREE.CylinderGeometry(.2, .2, .62, 8, 1, false, 0, Math.PI), wood);
-    lidMesh.rotation.z = Math.PI / 2; lidMesh.position.z = .2;
-    lid.add(lidMesh);
-    lid.rotation.x = -1.9;            // flung open
-    chest.add(lid);
-    // gold heaped inside, glowing
-    const inside = new THREE.Mesh(new THREE.SphereGeometry(.28, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2), gold);
-    inside.scale.set(1, .45, .62); inside.position.y = .3;
-    chest.add(inside);
-    chest.position.set(chestAt.x, groundAt(chestAt.x, chestAt.z), chestAt.z);
-    chest.rotation.y = chestAt.rotY || 0;
-    chest.scale.setScalar(1.25);
-    chest.traverse((m) => { if (m.isMesh) m.castShadow = m.receiveShadow = true; });
-    group.add(chest);
-    tops.push(chest.position.clone().add(new THREE.Vector3(0, .42, 0)));
+    add(new THREE.IcosahedronGeometry(.07, 0), iron, [0, .03, 0]);                                // crown
+    // lay it down flat
+    const lay = new THREE.Group();
+    lay.add(anchor);
+    anchor.rotation.set(-Math.PI / 2 + .1, 0, 0);   // flat on the ground, ring end raised a touch
+    anchor.position.y = .07;
+    lay.position.set(anchorAt.x, groundAt(anchorAt.x, anchorAt.z), anchorAt.z);
+    lay.rotation.y = anchorAt.rotY || 0;
+    lay.scale.setScalar(anchorAt.scale || 1);
+    group.add(lay);
   }
 
   // ---- glints: little four-pointed stars that twinkle on and off
