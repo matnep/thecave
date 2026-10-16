@@ -773,7 +773,8 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
 
 
   // ============================================================ ambient life
-  const life = createLife(scene, { groundY, MOUTH, smooth, mix, clearance, models: await loadCreatureModels() });
+  const models = await loadCreatureModels().catch((err) => { console.warn('[cave] duck/fish models failed to load', err); return null; });
+  const life = createLife(scene, { groundY, MOUTH, smooth, mix, clearance, models });
 
   // ============================================================ per-frame
   const look = HOME.look.clone();

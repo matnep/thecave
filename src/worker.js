@@ -26,7 +26,7 @@ export default {
 
     if (path === '/join') return Response.redirect(new URL('/form', url).toString(), 301);
     // the moderator panel is a second page of the admin build (public/admin/panel.html)
-    if (path === '/panel') return env.ASSETS.fetch(new Request(new URL('/admin/panel', url), request));
+    if (path === '/panel') return fresh(env, new Request(new URL('/admin/panel', url), request));
 
     if (path === '/api/qr.svg') {
       // Without PUBLIC_URL (local dev) point at whatever address the backdrop was opened on. Read the Host
@@ -77,9 +77,21 @@ export default {
     }
 
     if (path.startsWith('/api/')) return json({ error: 'Not found.' }, 404);
+    if (FRESH.some((p) => (p.endsWith('/') ? path.startsWith(p) : path === p))) return fresh(env, request);
     return env.ASSETS.fetch(request);
   },
 };
+
+// Pages, scripts and models that change with each deploy: always fresh (browsers revalidate by ETag, so it's
+// cheap), never an edge copy. Right after a deploy nobody gets old and new files mixed, and the admin's HTML
+// never points at build files that no longer exist. (vendor/ and fonts don't change, so they cache as normal.)
+const FRESH = ['/', '/index.html', '/form', '/form.html', '/admin', '/admin/', '/js/', '/models/'];
+async function fresh(env, request) {
+  const res = await env.ASSETS.fetch(request);
+  const out = new Response(res.body, res);
+  out.headers.set('cache-control', 'no-cache');
+  return out;
+}
 
 async function readJson(request) {
   if (!(request.headers.get('content-type') || '').includes('application/json')) return null;

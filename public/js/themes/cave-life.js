@@ -325,8 +325,9 @@ export function createLife(scene, { groundY, MOUTH, clearance, models }) {
 
   // ------------------------------------------------------------ the lost duckling (always around)
   // Wanders between spots on the open water in front: swims over, slows, rests, looks about, sometimes dabbles.
-  const lost = new Swimmer('chick', -1.1, 2.4, Math.PI);
-  lost.setSize(1.15);
+  // (no models = no ducks or fish, but the rest of the cave still runs)
+  const lost = models ? new Swimmer('chick', -1.1, 2.4, Math.PI) : null;
+  lost?.setSize(1.15);
   let lostTarget = null, lostRest = 2;
   function pickSpot() {
     for (let i = 0; i < 40; i++) {
@@ -338,6 +339,7 @@ export function createLife(scene, { groundY, MOUTH, clearance, models }) {
     return { x: lost.pos.x, z: lost.pos.y };       // nowhere good: stay put a while longer
   }
   function updateLost(t, dt) {
+    if (!lost) return;
     let idle = true;
     if (lostTarget) {
       idle = false;
@@ -355,7 +357,7 @@ export function createLife(scene, { groundY, MOUTH, clearance, models }) {
   }
 
   // ------------------------------------------------------------ director
-  const EVENTS = { ducks, ship, fish };
+  const EVENTS = models ? { ducks, ship, fish } : { ship };
   let active = null, last = null, wait = 5;
   return {
     update(t, dt) {
@@ -363,7 +365,7 @@ export function createLife(scene, { groundY, MOUTH, clearance, models }) {
       if (active) {
         if (active.update(dt, t) === false) { active = null; wait = 9 + Math.random() * 11; }
       } else if ((wait -= dt) <= 0) {
-        const names = Object.keys(EVENTS).filter((n) => n !== last);
+        const names = Object.keys(EVENTS).filter((n) => n !== last || Object.keys(EVENTS).length === 1);
         last = names[Math.floor(Math.random() * names.length)];
         active = EVENTS[last]();
       }

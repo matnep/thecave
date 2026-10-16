@@ -14,7 +14,7 @@
     "directory": "./public",
     "binding": "ASSETS",
     "html_handling": "auto-trailing-slash",
-    "run_worker_first": ["/api/*", "/join", "/panel"]
+    "run_worker_first": ["/api/*", "/join", "/panel", "/", "/index.html", "/form", "/form.html", "/admin", "/admin/*", "/js/*", "/models/*"]
   },
 
   // One room holds the questions, presenters, TV slides and the live connections.

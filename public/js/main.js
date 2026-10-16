@@ -78,7 +78,7 @@ async function loadTheme(n) {
     window.__cave = { theme, themeNum, tvScreen, renderer, ...theme.debug };
   } catch (err) {
     console.error(err);
-    say(`Theme ${n} failed to load`);
+    say(`Theme ${n} failed to load: ${err?.message || err}`);   // the reason, so it can be reported
   }
   fade.classList.remove('on');
   document.body.classList.add('ready');
