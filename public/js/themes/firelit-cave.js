@@ -390,11 +390,16 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
         bool upper = f.x < f.y;
         vec2 cen = (i + (upper ? vec2(1. / 3., 2. / 3.) : vec2(2. / 3., 1. / 3.))) * S;
         float id = hash(i + (upper ? vec2(.5) : vec2(0.)));
-        float warp = vnoise(cen * .4 + vec2(0., -t * .07)) * 2.4;
-        vec3 h = waves(cen, warp);
-        float calm = (.35 + .65 * deep) * 1.4;
+        // facets only up close: with distance they shrink on screen into a busy checkerboard, so the far water
+        // blends to smooth, gentler shading (and the per-facet tint variation fades with it)
+        float dist = length(vWorld - cameraPosition);
+        float smoothFar = smoothstep(5., 13., dist);
+        vec2 at = mix(cen, w, smoothFar);
+        vec3 h = waves(at, vnoise(at * .4 + vec2(0., -t * .07)) * 2.4);
+        float calm = (.35 + .65 * deep) * 1.4 * (1. - smoothFar * .7);
         vec3 N = normalize(vec3(-h.y * calm, 1., -h.z * calm));
-        vec3 P = vec3(cen.x, 0., cen.y);
+        vec3 P = vec3(at.x, 0., at.y);
+        id = mix(id, .5, smoothFar);
         vec3 V = normalize(cameraPosition - P);
         vec3 R = reflect(-V, N);
 
@@ -408,7 +413,7 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
         float m = toward(R, P, uMouthPos, 110.);
         float fi = toward(R, P, uFirePos, 70.) * smoothstep(9., 1.5, length(uFirePos.xz - cen));
         float tv = toward(R, P, uTvPos, 90.) * smoothstep(7., 1., length(uTvPos.xz - cen));
-        col += uMouthCol * m * .22 + uFireCol * fi * .3 * uFire + uTvCol * tv * .22;
+        col += uMouthCol * m * .22 * (1. - smoothFar * .75) + uFireCol * fi * .3 * uFire + uTvCol * tv * .22;
 
         // far water melts into the warm haze
         float far = smoothstep(4., 26., length(vWorld - cameraPosition));

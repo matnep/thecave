@@ -62,7 +62,7 @@ The TV runs a slideshow: the QR code, then up to three approved questions, then 
 back until it's marked answered or hidden. A new question goes up as soon as the one on screen has had its time: the chime plays and the alarm
 beacon on top of the TV turns from clear glass to red and rattles on the cabinet. The QR is drawn amber-on-dark to match the TV. Sound needs one key press or click
 on the backdrop first (browsers block sound until then); pressing **F** for fullscreen is enough.
-The TV's glass is shattered in one corner (shards catch the light at different angles; the cracks stop short of the QR so it always scans) and the cabinet is worn; a retro flip clock on top shows the time; a hoard of gold glints under it (coins, a crown and two swords) with an old ship's anchor lying beside it. Partner logos (`public/partners.png`) take turns with the QR on the TV: the strip is split into one logo per partner wherever there is a wide transparent gap.
+The TV's cabinet is worn; a retro flip clock on top shows the time; a hoard of gold glints under it (coins, a crown and two swords) with an old ship's anchor lying beside it. Partner logos (`public/partners.png`) take turns with the QR on the TV: the strip is split into one logo per partner wherever there is a wide transparent gap.
 From /admin you can bring any question back with **Show again**.
 
 **Backdrop keys:** `1`–`9` theme · `F` fullscreen · `Q` camera zooms in/out of the TV (shows whatever is on it) · `C` chromatic aberration on/off on this screen (the admin setting wins on its next change; eases off while zoomed into the TV) · `P` FPS meter
