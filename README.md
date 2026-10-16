@@ -17,7 +17,7 @@ Runs on Cloudflare: a Worker serves the site and API, and one Durable Object kee
 - **On the TV now**: what the backdrop is showing, live, plus a remote (Prev / QR / Next / Slideshow). A banner warns when the TV is stuck on manual.
 - **TV**: seconds each question stays up, the caption under the QR, partner logos on/off, chromatic aberration on/off and its strength.
 - **Sound**: new-question sound (marimba, singing bowl, ding-dong or none) with volume, mute and a Test button; campfire crackle volume and mute.
-- **Live controls**: approve-before-showing (moderation), zoom the backdrop into the TV, mark every TV question answered.
+- **Live controls**: approve-before-showing (moderation), a Zoom in / Zoom out button for the backdrop camera, mark every TV question answered.
 - **Presenters**: add names and talk titles; "Put on stage" shows them under THE CAVE logo on the backdrop and on the form, and tags new questions with them.
 
 ## Moderator panel

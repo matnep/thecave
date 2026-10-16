@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   BellRing, Check, Clock, ExternalLink, EyeOff, Flag, Flame, LogOut, MonitorPlay, Plus, QrCode, RotateCcw, Search,
-  Smartphone, Trash2, Tv, Undo2, UserRound, Volume2, VolumeX, X,
+  Smartphone, Trash2, Tv, Undo2, UserRound, Volume2, VolumeX, X, ZoomIn, ZoomOut,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -316,8 +316,11 @@ function LiveControls({ settings: s, act }) {
       <CardContent className="grid gap-4">
         <SwitchRow id="moderation" label="Approve before the TV" hint="Questions wait here until you approve them. Swear words (English & Malay) are always held."
           checked={s.moderation} onChange={(on) => act('moderation', { on })} />
-        <SwitchRow id="focus" label="Zoom into the TV" hint="The backdrop camera moves in close on the TV screen."
-          checked={s.focus} onChange={(on) => act('focus', { on })} />
+        {/* camera zoom on the backdrop: in close on the TV, or back out to the whole cave */}
+        <Button variant={s.focus ? 'default' : 'secondary'} className="w-full"
+          onClick={() => act('focus', { on: !s.focus }, s.focus ? 'Zoomed out' : 'Zoomed in on the TV')}>
+          {s.focus ? <><ZoomOut />Zoom out to the cave</> : <><ZoomIn />Zoom in on the TV</>}
+        </Button>
         <Separator />
         <Confirm title="Clear the TV?" body="Every question on the TV is marked as answered, so the slideshow starts empty." action="Clear"
           onConfirm={() => act('clear', {}, 'TV cleared')}>
