@@ -12,7 +12,7 @@ import * as sound from './sound.js';
 // number key → theme module. Add new themes here.
 const THEMES = {
   1: () => import('./themes/firelit-cave.js'),
-  2: () => import('./themes/neon-city.js'),
+  2: () => import('./themes/valley.js'),
 };
 
 await Promise.all([document.fonts.load('100px Anton'), document.fonts.load('100px VT323')]);

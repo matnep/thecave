@@ -17,8 +17,4 @@ for (const font of ['anton', 'vt323', 'ibm-plex-mono']) {
   // only the files 400.css can reference
   for (const f of readdirSync(`${src}/files`)) if (f.includes('-400-normal.')) cpSync(`${src}/files/${f}`, `${dst}/files/${f}`);
 }
-// Delaunay triangulation (theme 2 turns its photo into low-poly triangles in the browser)
-cpSync('node_modules/delaunator/index.js', `${OUT}/delaunator/index.js`);
-cpSync('node_modules/robust-predicates/index.js', `${OUT}/robust-predicates/index.js`);
-cpSync('node_modules/robust-predicates/esm', `${OUT}/robust-predicates/esm`, { recursive: true });
 console.log('vendor files copied to', OUT);

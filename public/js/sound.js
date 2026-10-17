@@ -1,7 +1,7 @@
 // Sound for the backdrop, all synthesised with WebAudio (no audio files, so nothing to license).
 //   chime(kind, volume)   the new-question sound: 'marimba' | 'bowl' | 'dingdong' | 'none'
 //   setAmbience(volume)   the theme's background sound, 0 = off
-//   setAmbienceKind(kind) which one: 'fire' (crackling campfire, theme 1) | 'city' (a busy crossing at night, theme 2) | 'rain' | 'hum'
+//   setAmbienceKind(kind) which one: 'fire' (crackling campfire, theme 1) | 'meadow' (wind, a stream and birds, theme 2) | 'city' | 'rain' | 'hum'
 // Browsers only allow sound after a key press or click, so everything waits for unlock() (pressing F is enough).
 
 let ctx = null;
@@ -340,4 +340,56 @@ function makeCity() {
   };
 }
 
-const MAKERS = { fire: makeFire, hum: makeHum, rain: makeRain, city: makeCity };
+// ------------------------------------------------------------------ meadow (theme 2)
+// A soft wind that swells and settles, a stream trickling somewhere below, and now and then a bird: a short
+// phrase of quick rising/falling whistles, panned to one side. All gentle.
+function makeMeadow() {
+  const out = ctx.createGain();
+  out.gain.value = 0;
+  out.connect(master);
+  const white = ctx.createBuffer(1, ctx.sampleRate * 3, ctx.sampleRate);
+  { const w = white.getChannelData(0); for (let i = 0; i < w.length; i++) w[i] = Math.random() * 2 - 1; }
+  const loop = (type, freq, q, level) => {
+    const src = ctx.createBufferSource(); src.buffer = white; src.loop = true;
+    const f = ctx.createBiquadFilter(); f.type = type; f.frequency.value = freq; f.Q.value = q;
+    const g = ctx.createGain(); g.gain.value = level;
+    src.connect(f).connect(g).connect(out); src.start(0, Math.random() * 2.5);
+    return { f, g };
+  };
+  const wind = loop('lowpass', 420, .5, .14);
+  const gust = ctx.createOscillator(), gustDepth = ctx.createGain();
+  gust.frequency.value = .07; gustDepth.gain.value = .08;
+  gust.connect(gustDepth).connect(wind.g.gain); gust.start();
+  const sweep = ctx.createOscillator(), sweepDepth = ctx.createGain();
+  sweep.frequency.value = .05; sweepDepth.gain.value = 180;
+  sweep.connect(sweepDepth).connect(wind.f.frequency); sweep.start();
+  // the stream: bright noise whose level flickers quickly and softly, like water over stones
+  const stream = loop('bandpass', 2800, .9, .02);
+  let timer = null, birdTimer = null;
+  const babble = () => { stream.g.gain.setTargetAtTime(.012 + Math.random() * .03, ctx.currentTime, .04); };
+  const bird = () => {
+    const pan = ctx.createStereoPanner(); pan.pan.value = Math.random() * 1.6 - .8; pan.connect(out);
+    const base = 2600 + Math.random() * 1800, notes = 3 + Math.floor(Math.random() * 5);
+    let t = ctx.currentTime + .05;
+    for (let k = 0; k < notes; k++) {
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = 'sine';
+      const f0 = base * (.85 + Math.random() * .4), up = Math.random() < .5;
+      o.frequency.setValueAtTime(f0 * (up ? .8 : 1.15), t);
+      o.frequency.exponentialRampToValueAtTime(f0 * (up ? 1.2 : .8), t + .08);
+      g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(.035, t + .01); g.gain.exponentialRampToValueAtTime(.0001, t + .1);
+      o.connect(g).connect(pan); o.start(t); o.stop(t + .12);
+      t += .09 + Math.random() * .08;
+    }
+    birdTimer = setTimeout(bird, 3500 + Math.random() * 9000);
+  };
+  return {
+    setVolume(v) {
+      out.gain.setTargetAtTime(v * .9, ctx.currentTime, .4);
+      if (v > 0 && !timer) { timer = setInterval(babble, 90); birdTimer = setTimeout(bird, 2000); }
+      if (v <= 0 && timer) { clearInterval(timer); clearTimeout(birdTimer); timer = null; }
+    },
+  };
+}
+
+const MAKERS = { fire: makeFire, hum: makeHum, rain: makeRain, city: makeCity, meadow: makeMeadow };

@@ -16,7 +16,7 @@ Runs on Cloudflare: a Worker serves the site and API, and one Durable Object kee
   Questions containing swear words (English and Malay) are always held in Waiting, even with moderation off.
 - **On the TV now**: what the backdrop is showing, live, plus a remote (Prev / QR / Next / Slideshow). A banner warns when the TV is stuck on manual.
 - **TV**: seconds each question stays up, the caption under the QR, partner logos on/off, chromatic aberration on/off and its strength.
-- **Sound**: new-question sound (marimba, singing bowl, ding-dong or none) with volume, mute and a Test button; the background sound's volume and mute (campfire crackle in theme 1, a crowd murmur and distant city in theme 2).
+- **Sound**: new-question sound (marimba, singing bowl, ding-dong or none) with volume, mute and a Test button; the background sound's volume and mute (campfire crackle in theme 1, wind, a stream and birdsong in theme 2).
 - **Live controls**: approve-before-showing (moderation), the TV screen buttons (Prev / QR / Next / Slideshow, same as the arrow keys), an alarm light on/off button (held on until switched off; new questions still set it off either way), a Zoom in / Zoom out button for the backdrop camera, mark every TV question answered.
 - **Presenters**: add names and talk titles; "Put on stage" shows them under THE CAVE logo on the backdrop and on the form, and tags new questions with them.
 
@@ -53,7 +53,7 @@ The last theme used is remembered; `/?theme=1` forces one.
 | Key | Theme | File |
 |---|---|---|
 | 1 | Firelit cave: campfire, floating logo, water channel, a lost duckling that is always paddling about; a duck family, a pirate ship and jumping fish take turns appearing. Ducks steer round the rocks and fish only jump over open water (`clearance.js` maps where the rocks are) | `public/js/themes/firelit-cave.js` (+ `cave-life.js`, `clearance.js`) |
-| 2 | Neon city: a low-poly version of a night photo (`public/scenes/city-night.webp`). The photo is triangulated in the browser (finer where it has detail), split into depth layers that slide against each other as the camera drifts, and its bright signs bloom. Below the horizon a 3D wet plaza reflects the photo. Fitted onto the photo: the live question screen over its big screen, a "QUE" neon sign that lights up for a new question, a clock in place of a brand sign, our own signs over the real brands, and the logo and presenter in the sky gap. To change the photo, replace the image and update the `PHOTO_*` coordinates in the theme | `public/js/themes/neon-city.js` |
+| 2 | Alpine valley: a sunny low-poly valley seen from a grassy hill: a turquoise lake with a footbridge and reeds, layered pines and round trees, blocky cliffs, misty mountains, a stone path to cabins with chimney smoke, birds and clouds. The questions go up on a wooden notice board: one pinned paper (QR, a handwritten question, or a partner logo); when the slideshow moves on, the paper is ripped off its pin and flutters away on the wind and a fresh one is pinned up. A bell swings and a lantern glows for a new question; a clock sits on the board's roof. Logo floating as in theme 1. Background sound: wind, a stream, birdsong | `public/js/themes/valley.js` |
 
 To add a theme: copy `firelit-cave.js`, change it, and register it in the `THEMES` list at the top of `public/js/main.js`.
 
@@ -78,5 +78,4 @@ If frames still drop it steps down automatically: lower resolution, then no shad
 
 ## Credits
 - Duck: "Mallard duck" by Poly by Google, [CC-BY 3.0](https://creativecommons.org/licenses/by/3.0/), via [Poly Pizza](https://poly.pizza/m/frSLi6b6Vid) (`public/models/mallard.glb`; ducklings use the same model in plain yellow)
-- Theme 2 photo (`public/scenes/city-night.webp`): supplied as a reference; confirm you have the rights to use it before showing it publicly, or replace it with your own photo
 - Fish: "Clownfish" by [Quaternius](https://quaternius.com), CC0, via [Poly Pizza](https://poly.pizza/m/769fHo3eEB) (`public/models/clownfish.glb`; recoloured to the cave palette)
