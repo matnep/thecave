@@ -1,5 +1,6 @@
 // Sound for the backdrop, all synthesised with WebAudio (no audio files, so nothing to license).
 //   chime(kind, volume)   the new-question sound: 'marimba' | 'bowl' | 'dingdong' | 'none'
+//   tear(volume)          a sheet of paper tearing off its pin (theme 2's notice board)
 //   setAmbience(volume)   the theme's background sound, 0 = off
 //   setAmbienceKind(kind) which one: 'fire' (crackling campfire, theme 1) | 'meadow' (wind, a stream and birds, theme 2) | 'city' | 'rain' | 'hum'
 // Browsers only allow sound after a key press or click, so everything waits for unlock() (pressing F is enough).
@@ -66,6 +67,27 @@ export function chime(kind = 'marimba', volume = .6) {
   out.connect(master);
   (CHIMES[kind] || CHIMES.marimba)(ctx.currentTime + .02, out);
   setTimeout(() => out.disconnect(), 6000);
+}
+
+// a sheet of paper tearing off its pin: a quick run of papery crackle (fibres giving way in tiny grains), its pitch
+// rising as the tear runs, then cut off as it comes free
+export function tear(volume = .6) {
+  if (!ready() || volume <= 0) return;
+  const t0 = ctx.currentTime + .01, rate = ctx.sampleRate, len = Math.floor(rate * .34);
+  const buf = ctx.createBuffer(1, len, rate), d = buf.getChannelData(0);
+  const env = (u) => Math.min(1, u / .06) * (u < .88 ? 1 : 1 - (u - .88) / .12);
+  for (let i = 0; i < len;) {
+    const n = Math.floor(rate * (.0008 + Math.random() * .004)), a = .2 + Math.random() * .8;
+    for (let k = 0; k < n && i < len; k++, i++) d[i] = (Math.random() * 2 - 1) * a * env(i / len);
+  }
+  const src = ctx.createBufferSource(); src.buffer = buf;
+  const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 1200;
+  const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = .7;
+  bp.frequency.setValueAtTime(2000, t0); bp.frequency.linearRampToValueAtTime(4500, t0 + .3);
+  const g = ctx.createGain(); g.gain.value = volume * 1.1;
+  src.connect(hp).connect(bp).connect(g).connect(master);
+  src.start(t0);
+  setTimeout(() => g.disconnect(), 1000);
 }
 
 // ------------------------------------------------------------------ ambience
