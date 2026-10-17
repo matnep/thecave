@@ -1,11 +1,11 @@
-// Theme 2 — a sunny low-poly highland valley in Malaysia. Standing on a grassy hill: a lake below with a footbridge,
+// Theme 2 — a sunny low-poly highland valley in Malaysia. Standing on a grassy hill: a broad lake below,
 // log cabins with a jetty and a rowboat on its shore, native trees (towering tualang, broadleaf rainforest trees,
 // thick-leaved fruit trees, banana plants, tree ferns, bamboo), bushes and hibiscus, grass-topped cliffs round the
 // valley with an old timber-framed mine entrance at the foot of the back cliff, forested peaks behind.
 // The logo floats in the sky, and the notice board stands where theme 1's TV is: both are solved at load so they
 // land on the same spot and size on screen as in theme 1.
 // The questions go up on the notice board: one pinned sheet at a time (QR code, a question, or a partner's logo).
-// When the slideshow moves on, the sheet is ripped off its pin and blown away off the board, and a fresh one is
+// When the slideshow moves on, the sheet is ripped off its pin and flutters down to the grass, and a fresh one is
 // pinned up. Partner icons sit on the notes in the margins. A bell swings and a lantern glows for a new question;
 // theme 1's flip clock, in the board's wood, stands under the gable. Birds circle, clouds drift, chimney smoke
 // billows. Nothing flashes.
@@ -51,7 +51,9 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
   }
   frameCamera();
 
-  const simplex = new SimplexNoise();
+  // seeded, so the land, the groves and everything on them come out the same every time
+  let noiseSeed = 42;                                                     // (picked for how the groves fall)
+  const simplex = new SimplexNoise({ random: () => ((noiseSeed = (noiseSeed * 48271) % 2147483647) / 2147483647) });
   let seed = 3;
   const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
   const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
@@ -59,7 +61,7 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
   const hex = (h) => new THREE.Color(h);
 
   // ============================================================ the land
-  const LAKE = { x: .5, z: -6, rx: 7.5, rz: 5 };
+  const LAKE = { x: 2.5, z: -8, rx: 11.5, rz: 6.8 };
   const lakeDist = (x, z) => Math.hypot((x - LAKE.x) / LAKE.rx, (z - LAKE.z) / LAKE.rz);   // 1 = the shore
   const WATER_Y = -.75;
   function groundY(x, z) {
@@ -119,8 +121,8 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
   const BOARD = new THREE.Vector3(boardAt.x, groundY(boardAt.x, boardAt.z), boardAt.z);
 
   // ============================================================ the land mesh
-  const GRASS = [0x5a9a40, 0x60a044, 0x54933c, 0x66a64a].map(hex);         // softer, less saturated greens
-  const DRY = hex(0xa8a868), DIRT = hex(0x7e7048), SHORE = hex(0x8ab070);
+  const GRASS = [0x487b33, 0x4d8036, 0x437630, 0x52853b].map(hex);         // deep, soft greens
+  const DRY = hex(0x939358), DIRT = hex(0x6e6240), SHORE = hex(0x78985e);
   {
     const g = new THREE.PlaneGeometry(LAND.w, LAND.d, LAND.nx, LAND.nz).toNonIndexed();
     g.rotateX(-Math.PI / 2);
@@ -322,7 +324,8 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
   })();
 
   const tualangs = [], rounds = [], denses = [], bananas = [], ferns = [], bamboos = [];
-  const CABINS = [[-10.2, -6.4], [-13.2, -10.6], [-8.6, -12.8]];
+  const CABINS = [[-11.7, -6.4], [-14.7, -10.6], [-10.1, -12.8]];
+  const JETTY = { x0: CABINS[0][0] + 2.3, x1: CABINS[0][0] + 6.4, z: CABINS[0][1] + .2 };   // from the lakeside cabin's porch out over the water
   // the cliff walls round the valley (built further down): [x from, x to, z from, z to, lowest, highest, slabs]
   const WALLS = [[-48, -12, -22, -30, 2.5, 5], [10, 52, -20, -30, 3, 6], [-14, -2, -40, -44, 3.5, 6, 10], [13, 24, -40, -44, 3.5, 6, 10],
     [-60, -40, -8, -16, 4, 7], [40, 62, -6, -14, 4, 7]];
@@ -335,8 +338,8 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
     || (Math.abs(x - 5) < 7 && z < -14 && z > -40);                       // the cave's view across the valley (tall trees too)
   const okFor = (x, z) => lakeDist(x, z) > 1.7 && !nearBoard(x, z) && !(Math.abs(x) < 9 && z > -16 && z < 8);
   const tint = () => new THREE.Color(.88 + rnd() * .14, .9 + rnd() * .12, .86 + rnd() * .12);
-  // Views to keep open: nothing standing nearer the camera than the cabins, the cave, the jetty or the notice board may
-  // reach into their part of the frame (checked on screen from the home view).
+  // Views to keep open: nothing standing nearer the camera than the cabins, the cave, the lake, the jetty, the notice board
+  // or the floating logo may reach into their part of the frame (checked on screen from the home view).
   const rectOf = (pts) => pts.reduce((r, p) => { const q = proj(p); return { x0: Math.min(r.x0, q.x), x1: Math.max(r.x1, q.x), y0: Math.min(r.y0, q.y), y1: Math.max(r.y1, q.y) }; }, { x0: 9, x1: -9, y0: 9, y1: -9 });
   const boxPts = (x0, x1, z0, z1, y0, y1) => [x0, x1].flatMap((x) => [z0, z1].flatMap((z) => [y0, y1].map((y) => new THREE.Vector3(x, y, z))));
   const fromCam = (x, z) => Math.hypot(x - CAM.x, z - CAM.z);
@@ -344,9 +347,10 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
   const KEEP = [
     ...CABINS.map(([x, z]) => ({ r: rectOf(boxPts(x - 2, x + 2, z - 2, z + 2, groundY(x, z), groundY(x, z) + 3.8)), d: fromCam(x, z) - 2 })),
     { r: rectOf(boxPts(CAVE.x - 4, CAVE.x + 4, CAVE.z + 1, CAVE.z + 5, CAVE.y, CAVE.y + 4.4)), d: fromCam(CAVE.x, CAVE.z + 5) },
-    { r: rectOf(boxPts(-7.6, -3.8, -7, -3.6, WATER_Y, WATER_Y + 1)), d: fromCam(-5.6, -3.6) },                 // the jetty and the boat
-    { r: rectOf(boxPts(LAKE.x - LAKE.rx * .8, LAKE.x + LAKE.rx * .8, LAKE.z, LAKE.z + LAKE.rz, WATER_Y, WATER_Y + 1)), d: fromCam(LAKE.x, LAKE.z + LAKE.rz) },   // the lake and its footbridge
+    { r: rectOf(boxPts(JETTY.x0, JETTY.x1, JETTY.z - .8, JETTY.z + 2.6, WATER_Y, WATER_Y + 1)), d: fromCam((JETTY.x0 + JETTY.x1) / 2, JETTY.z + 2.6) },   // the jetty and the boat
+    { r: rectOf(boxPts(LAKE.x - LAKE.rx * .8, LAKE.x + LAKE.rx * .8, LAKE.z, LAKE.z + LAKE.rz, WATER_Y, WATER_Y + 1)), d: fromCam(LAKE.x, LAKE.z + LAKE.rz) },   // the lake
     { r: rectOf(boxPts(BOARD.x - bw, BOARD.x + bw, BOARD.z, BOARD.z, BOARD.y + BASE * boardAt.s, BOARD.y + (BASE + BH + 1) * boardAt.s)), d: fromCam(BOARD.x, BOARD.z) - .5 },
+    { r: { x0: THEME1.logo.cx - THEME1.logo.w / 2 - .03, x1: THEME1.logo.cx + THEME1.logo.w / 2 + .03, y0: .12, y1: .9 }, d: 13 },   // the floating logo and who's on stage
   ];
   const blocksView = (x, z, h, w) => {
     const y = groundY(x, z), r = rectOf(boxPts(x - w, x + w, z, z, y, y + h)), d = fromCam(x, z);
@@ -359,9 +363,9 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
   // in the hearts of the groves. Bushes gather along the groves' edges and under them (further down, with the path).
   const grove = (x, z) => .5 + .5 * (simplex.noise(x * .045 + 11, z * .045 - 4) * .75 + simplex.noise(x * .12 - 3, z * .12 + 9) * .25);
   const kindAt = (x, z) => .5 + .5 * simplex.noise(x * .02 - 5, z * .02 + 3) + (rnd() - .5) * .25;
-  for (let gx = -60; gx <= 60; gx += 2.6) for (let gz = -48; gz <= 14; gz += 2.6) {
+  for (let gx = -60; gx <= 60; gx += 2.3) for (let gz = -48; gz <= 16; gz += 2.3) {
     const x = gx + (rnd() - .5) * 1.6, z = gz + (rnd() - .5) * 1.6, d = grove(x, z);
-    if (rnd() > smooth(.5, .72, d) || !okFor(x, z) || inRock(x, z) || Math.hypot(x, z - 22) < 9) continue;
+    if (rnd() > smooth(.3, .5, d) || !okFor(x, z) || inRock(x, z) || Math.hypot(x, z - 22) < 6.5) continue;
     const s = .7 + smooth(.55, .9, d) * .55 + rnd() * .15, k = kindAt(x, z), back = z < -20;
     if (back && rnd() < .12) ferns.push({ x, z, s: s * .9 });                   // tree ferns in the shade at the back
     else if (k < (back ? .38 : z < -12 ? .22 : -1)) tualangs.push({ x, z, s: s * .85 });   // tualangs tower: keep them back
@@ -369,12 +373,14 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
   }
   for (const [x, z] of [[-9.5, 8], [-12, 4], [-10.4, -2.4], [12.6, -2], [-14, -9], [3.4, 6.2]]) if (!nearBoard(x, z)) rounds.push({ x, z, s: 1 + rnd() * .4 });
   // tualang and thick-leaved trees behind the cabins and on the far shore, banana plants beside the cabins
-  for (const [list, x, z] of [[tualangs, -12.6, -15.4], [denses, -16.2, -8.6], [denses, -6.4, -16.2], [denses, -2.6, -12.4]]) list.push({ x, z, s: .95 + rnd() * .2 });
+  for (const [list, x, z] of [[tualangs, -14.1, -15.4], [denses, -17.7, -8.6], [denses, -7.4, -17], [denses, -4.2, -16.4]]) list.push({ x, z, s: .95 + rnd() * .2 });
   for (const [x, z] of [[-12.2, -8], [-6.6, -14.8], [-14.8, -12.6], [-12.4, -3.6]]) bananas.push({ x, z, s: .9 + rnd() * .3 });
-  for (const [x, z] of [[-6, -9.6], [2.6, -12.6]]) bamboos.push({ x, z, s: 1 });
+  for (const [x, z] of [[-9.4, -9.8], [7.6, -15.2]]) bamboos.push({ x, z, s: 1 });
   const leafy = vcMat({ side: THREE.DoubleSide });
-  // plant a kind of tree (h tall, w across its crown at scale 1), leaving out any that would block a view
-  const plant = (geo, mat, list, h, w) => instanced(geo, mat, list.filter((t) => !blocksView(t.x, t.z, h * t.s, w * t.s))
+  // plant a kind of tree (h tall, w across its crown at scale 1), leaving out any that would block a view, and any that
+  // can't be seen from the home view on any screen shape (wide margins: up to 3:1 wide, down to 4:3 tall)
+  const inView = (x, z, h) => { const q = proj(new THREE.Vector3(x, groundY(x, z) + h / 2, z)); return q.z < 1 && Math.abs(q.x) < 1.75 && q.y > -1.5 && q.y < 1.6; };
+  const plant = (geo, mat, list, h, w) => instanced(geo, mat, list.filter((t) => inView(t.x, t.z, h * t.s) && !blocksView(t.x, t.z, h * t.s, w * t.s))
     .map((t) => ({ x: t.x, y: groundY(t.x, t.z) - .1, z: t.z, ry: rnd() * 6, s: t.s, tint: tint() })));
   plant(tualangGeo, vcMat(), tualangs, 5.4, 1.4);
   plant(roundGeo, vcMat(), rounds, 3.1, 1.2);
@@ -388,7 +394,7 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
   rockGeo.computeVertexNormals();
   const rocks = [];
   for (const [x, z, s] of [[-7, 6, 1.1], [-2.6, 4.2, .9], [3.6, 3.8, .7], [-8.6, 1, 1.4], [6.4, -1.2, .8], [-4.4, -.4, .9], [1.8, 6.4, 1.3],
-    [-13, 9, 1.6], [-1.4, -2.6, .7], [-10.4, -4, 1.1]]) if (!nearBoard(x, z)) rocks.push({ x, z, s });
+    [-13, 9, 1.6], [-1.4, -2.6, .7], [-10.4, -4, 1.1]]) if (!nearBoard(x, z) && lakeDist(x, z) > 1.1) rocks.push({ x, z, s });
   for (let i = 0; i < 40; i++) { const x = (rnd() - .5) * 90, z = -40 + rnd() * 52; if (lakeDist(x, z) > 1.1 && Math.hypot(x, z - 22) > 8 && !nearBoard(x, z)) rocks.push({ x, z, s: .3 + rnd() * .8 }); }
   instanced(rockGeo, vcMat(), rocks.map((r) => ({ x: r.x, y: groundY(r.x, r.z) + r.s * .25, z: r.z, rx: rnd() * 3, ry: rnd() * 6, s: r.s, sy: r.s * .65 })));
   {
@@ -406,7 +412,7 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
         // a grassy cap on the ledge
         const cap = jitter(new THREE.BoxGeometry(w * .94, .5, d * .94, 2, 1, 2), .25);
         cap.rotateY(ry); cap.rotateZ(rz); cap.translate(x, y + hh + .05, z);
-        slabs.push(paint(cap, rnd() < .5 ? 0x5a8f40 : 0x638f45));
+        slabs.push(paint(cap, rnd() < .5 ? 0x4a7a34 : 0x527c38));
       }
     };
     for (const w of WALLS) wall(...w);
@@ -431,12 +437,12 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
       g.translate(x, CAVE.y + hh / 2 - 1, z);
       slabs.push(paint(g, CLIFF[rnd() < .5 ? 0 : 1]));
       const cap = jitter(new THREE.BoxGeometry(w * .94, .5, d * .94, 2, 1, 2), .25); cap.rotateY(ry); cap.translate(x, CAVE.y + hh - .95, z);
-      slabs.push(paint(cap, rnd() < .5 ? 0x5a8f40 : 0x638f45));
+      slabs.push(paint(cap, rnd() < .5 ? 0x4a7a34 : 0x527c38));
     }
     const face = new THREE.BoxGeometry(14, 10, 3, 3, 3, 1); jitter(face, .7); face.translate(CAVE.x, CAVE.y + 4, CAVE.z - .6);
     slabs.push(paint(face, CLIFF[2]));
     const brow = jitter(new THREE.BoxGeometry(13.6, .6, 2.8, 4, 1, 1), .3); brow.translate(CAVE.x, CAVE.y + 9.1, CAVE.z - .6);
-    slabs.push(paint(brow, 0x5e9042));
+    slabs.push(paint(brow, 0x4e7a36));
     const crag = new THREE.Mesh(solid(slabs), vcMat({ roughness: .85 }));
     crag.castShadow = crag.receiveShadow = true;
     scene.add(crag);
@@ -570,22 +576,8 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
         [.98, .8, .38], [1.4, .88, .46], [1.9, .8, .5], [2.35, .84, .5]] });
   }
 
-  // ============================================================ footbridge, path, bushes
+  // ============================================================ path, bushes
   {
-    const plank = new THREE.MeshStandardMaterial({ color: 0x7e5232, roughness: .9, flatShading: true });
-    const bridge = new THREE.Group();
-    for (let i = 0; i < 12; i++) {
-      const b = new THREE.Mesh(new THREE.BoxGeometry(.32, .08, 1.3), plank);
-      b.position.set(-2.2 + i * .38, .05 + Math.sin(i / 11 * Math.PI) * .25, 0); b.rotation.y = (rnd() - .5) * .05;
-      b.castShadow = b.receiveShadow = true; bridge.add(b);
-    }
-    for (const z of [-.62, .62]) {
-      const rail = new THREE.Mesh(new THREE.BoxGeometry(4.6, .06, .06), plank); rail.position.set(0, .75, z); bridge.add(rail);
-      for (const x of [-2.2, -.8, .8, 2.2]) { const post = new THREE.Mesh(new THREE.BoxGeometry(.09, 1, .09), plank); post.position.set(x, .35, z); bridge.add(post); }
-    }
-    bridge.position.set(LAKE.x - 1.2, WATER_Y + .15, LAKE.z + LAKE.rz * .82);
-    bridge.rotation.y = .12;
-    scene.add(bridge);
     // stepping stones down the hill from the notice board toward the cabin
     const stoneGeo = new THREE.CylinderGeometry(.42, .46, .14, 6);
     const path = new THREE.CatmullRomCurve3([[BOARD.x - .6, BOARD.z - 1.8], [BOARD.x - 1.8, BOARD.z - 5.5], [3, 1.6], [1.4, -.4]].map(([x, z]) => new THREE.Vector3(x, 0, z)));
@@ -600,16 +592,16 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
     const stones = new THREE.InstancedMesh(stoneGeo, new THREE.MeshStandardMaterial({ color: 0xcfd1d4, roughness: .9, flatShading: true }), steps.length);
     steps.forEach((p, i) => { o3.position.set(p.x, p.y, p.z); o3.rotation.set(0, p.ry, 0); o3.scale.set(p.s, 1, p.s * .8); o3.updateMatrix(); stones.setMatrixAt(i, o3.matrix); });
     stones.receiveShadow = true; scene.add(stones);
-    // bushes: gathered along the groves' edges and under them, a few scattered in the open, now and then a hibiscus in
+    // bushes: thick along the groves' edges and under them, scattered through the open, now and then a hibiscus in
     // flower; off the path and the shore, clear of the board, the cabins, the jetty and the cave's patch of sand
     const along = path.getSpacedPoints(40), bushes = [], blooms = [];
-    for (let gx = -46; gx <= 46; gx += 1.9) for (let gz = -40; gz <= 16; gz += 1.9) {
+    for (let gx = -46; gx <= 46; gx += 1.6) for (let gz = -40; gz <= 17; gz += 1.6) {
       const x = gx + (rnd() - .5) * 1.4, z = gz + (rnd() - .5) * 1.4, d = grove(x, z);
-      if (rnd() > .06 + smooth(.36, .56, d) * .6) continue;
+      if (rnd() > .18 + smooth(.22, .48, d) * .72) continue;
       if (lakeDist(x, z) < 1.25 || Math.hypot(x - BOARD.x, z - BOARD.z) < 2.6 || CABINS.some(([cx, cz]) => Math.hypot(x - cx, z - cz) < 2.5)
-        || (Math.abs(x - CAVE.x) < 4.5 && z > CAVE.z - 1 && z < CAVE.z + 6.5) || (x > -8 && x < -3.4 && z > -7.6 && z < -3.4)
+        || (Math.abs(x - CAVE.x) < 4.5 && z > CAVE.z - 1 && z < CAVE.z + 6.5) || (x > JETTY.x0 - .8 && x < JETTY.x1 + .6 && z > JETTY.z - 1.4 && z < JETTY.z + 2.6)
         || inRock(x, z) || along.some((p) => Math.hypot(x - p.x, z - p.z) < 1.1)) continue;
-      (rnd() < .055 ? blooms : bushes).push({ x, z, s: .6 + rnd() * .45 + smooth(.4, .8, d) * .4 });
+      (rnd() < .05 && z < 2 ? blooms : bushes).push({ x, z, s: .6 + rnd() * .45 + smooth(.4, .8, d) * .4 });   // flowers out in the valley, small
     }
     plant(bushGeo, vcMat(), bushes, .8, .7);
     plant(bloomGeo, vcMat(), blooms, .8, .7);
@@ -693,14 +685,14 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
   {
     // a jetty out into the lake from the cabin, with a rowboat tied alongside
     const wood = [];
-    const x0 = -7.4, x1 = -4.2, zj = -6.2;                                // from the shore, clear of the porch
+    const { x0, x1, z: zj } = JETTY;
     for (let i = 0; i <= 10; i++) wood.push([new THREE.BoxGeometry(.3, .07, 1.1).translate(x0 + (x1 - x0) * i / 10, WATER_Y + .42, zj), i % 2 ? 0x8a6040 : 0x7a5434]);
     for (const x of [x0, (x0 + x1) / 2, x1]) for (const z of [zj - .5, zj + .5]) wood.push([new THREE.CylinderGeometry(.07, .07, 1.2, 5).translate(x, WATER_Y + .1, z), 0x5a3a22]);
     scene.add(build(wood));
     const hull = new THREE.BoxGeometry(2.2, .4, .9, 4, 1, 2);
     { const p = hull.attributes.position; for (let i = 0; i < p.count; i++) { const x = p.getX(i), y = p.getY(i); const k = 1 - Math.pow(Math.abs(x) / 1.1, 3) * .9; p.setZ(i, p.getZ(i) * k * (y < 0 ? .7 : 1)); if (y < 0) p.setY(i, y + Math.abs(x) * .05); } }
     const boat = build([[hull, 0x9a5a32], [new THREE.BoxGeometry(.12, .06, .7).translate(-.35, .12, 0), 0x6a3e22], [new THREE.BoxGeometry(.12, .06, .7).translate(.4, .12, 0), 0x6a3e22]]);
-    boat.position.set(-5.2, WATER_Y + .12, zj + 1.15); boat.rotation.y = .12;              // on the near side, in view
+    boat.position.set(x1 - 1.1, WATER_Y + .12, zj + 1.15); boat.rotation.y = .12;          // on the near side, in view
     scene.add(boat);
   }
 
@@ -904,16 +896,14 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
     new THREE.MeshStandardMaterial({ color: 0xf2ead6, roughness: .9, side: THREE.DoubleSide }));
   scrap.position.set(0, PIN_Y + .02, SHEET_Z - .01); scrap.visible = false; board.add(scrap);
 
-  // ---- ripping: the old sheet is copied into a flyer that tears off the pin and blows away; a fresh one goes up
+  // ---- ripping: the old sheet is copied into a flyer that tears off the pin and falls away; a fresh one goes up
   const flyers = [];
-  // The wind that carries a torn sheet off, set in the board's own frame. First it lifts the sheet straight up off the
-  // board (out in front of it, never back through it); once all of the sheet is above the roof, it carries it back over
-  // the valley, and once it's well back, off to the left the way the smoke goes. The board stands almost as near as the
-  // floating logo, so the sheet keeps right of the logo while it's close, and is far behind it when it drifts across.
+  // The torn sheet peels off and drops, fluttering down and away to the left (the way the smoke drifts) like a falling
+  // leaf, always out in front of the board, never through it, never into the ground, and fades as it falls. Its fall is
+  // set in the board's own frame.
   const boardDir = (x, y, z) => new THREE.Vector3(x, y, z).applyQuaternion(board.quaternion).multiplyScalar(boardAt.s);
-  const lift = boardDir(-.8, 2, .1), carry = boardDir(0, 0, -4), drift = boardDir(-4.2, 0, 0), DRAG = .8;
-  const ROOF_TOP = BASE + BH + 1.1;
-  const toBoard = new THREE.Matrix4(), sheetV = new THREE.Vector3();
+  const fall = boardDir(-2.4, -2.6, 0), sway = boardDir(1, 0, 0), DRAG = 1.4;
+  const toBoard = new THREE.Matrix4(), sheetV = new THREE.Vector3(), sheetW = new THREE.Vector3();
   function ripOff() {
     const snap = document.createElement('canvas'); snap.width = paperCanvas.width; snap.height = paperCanvas.height;
     snap.getContext('2d').drawImage(paperCanvas, 0, 0);
@@ -955,29 +945,32 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
         f.m.position.addScaledVector(f.fwd, dt * 2.4 * boardAt.s);
         f.m.rotateX(-dt * 2.2 * (1 - u)); f.m.rotateZ(-dt * .8);
       } else {
-        if (!f.free) { f.free = true; f.vel.copy(boardDir(-.6, 2.2, .3)); }
-        const over = smooth(.15, .7, (f.low ?? 0) - ROOF_TOP);              // how far all of it has cleared the roof
-        const back = smooth(.5, 3, -(f.lz ?? 0));                            // how far back over the valley it has gone
-        f.vel.addScaledVector(lift, dt * (1 - over)).addScaledVector(carry, dt * over).addScaledVector(drift, dt * back).multiplyScalar(1 - dt * DRAG);
-        // once over the roof it floats along at about that height, rather than shooting off the top of the frame
-        f.vel.y += over * ((ROOF_TOP + .8 - (f.low ?? 0)) * 1.5 * boardAt.s - f.vel.y) * Math.min(1, dt * 3);
-        f.vel.y += Math.sin(f.age * 2.3 + f.seed) * dt * .9 - dt * .25;
-        f.m.position.addScaledVector(f.vel, dt);
-        f.m.rotateX(f.spin.x * dt); f.m.rotateY(f.spin.y * dt); f.m.rotateZ(f.spin.z * dt);
-        // and never through the board: if any part of the sheet over the board comes closer than the front of the roof,
-        // the clock and the bell, it's pushed back out
+        if (!f.free) { f.free = true; f.vel.copy(boardDir(-1.3, -.5, .25)); }
+        if (f.landed === undefined) {
+          f.vel.addScaledVector(fall, dt).multiplyScalar(1 - dt * DRAG);
+          // a falling leaf's sway: side to side, buoyed up a little at the end of each swing
+          const sw = Math.sin(f.age * 3.1 + f.seed);
+          f.vel.addScaledVector(sway, sw * dt * 2.2);
+          f.vel.y += (1 - Math.abs(sw)) * dt * .4 * boardAt.s;
+          f.m.position.addScaledVector(f.vel, dt);
+          f.m.rotateX(f.spin.x * dt); f.m.rotateY(f.spin.y * dt); f.m.rotateZ(f.spin.z * dt);
+        }
+        // Never through the board (any part of the sheet in front of it stays clear of the roof, the clock and the bell),
+        // and never into the ground: where it touches the grass, it comes to rest and starts to fade.
         f.m.updateMatrixWorld();
         toBoard.copy(board.matrixWorld).invert().multiply(f.m.matrixWorld);
-        let near = Infinity, low = Infinity;
+        let near = Infinity, clear = Infinity;
         for (let j = 0; j < p.count; j += 2) {
-          sheetV.fromBufferAttribute(p, j).applyMatrix4(toBoard);
-          low = Math.min(low, sheetV.y);
-          if (Math.abs(sheetV.x) < BW / 2 + .5 && sheetV.y > BASE - .4 && sheetV.y < ROOF_TOP + .2 && sheetV.z > -.6) near = Math.min(near, sheetV.z);
+          sheetV.fromBufferAttribute(p, j);
+          sheetW.copy(sheetV).applyMatrix4(f.m.matrixWorld);
+          clear = Math.min(clear, sheetW.y - landY(sheetW.x, sheetW.z));
+          sheetV.applyMatrix4(toBoard);
+          if (Math.abs(sheetV.x) < BW / 2 + .5 && sheetV.y > BASE - .4 && sheetV.y < BASE + BH + 1.3 && sheetV.z > -.6) near = Math.min(near, sheetV.z);
         }
         if (near < .85) { f.m.position.addScaledVector(f.fwd, (.85 - near) * boardAt.s); const back = f.vel.dot(f.fwd); if (back < 0) f.vel.addScaledVector(f.fwd, -back); }
-        f.low = low; f.lz = toBoard.elements[14];                            // its lowest point, and how far out from the board
+        if (clear < .06) { f.m.position.y += .06 - clear; f.landed ??= f.age; }   // on the grass: it stops there
       }
-      const amp = f.free ? .14 : .05;
+      const amp = f.landed !== undefined ? .02 : f.free ? .14 : .05;
       for (let j = 0; j < p.count; j++) {
         const x = f.rest[j * 3], y = f.rest[j * 3 + 1];
         let z = Math.sin(x * 2.4 + f.age * 9 + f.seed) * amp * (1 + y / PH * .3) + Math.sin(y * 2.6 + f.age * 6) * amp * .6 * (-y / PH);
@@ -985,8 +978,9 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
         p.setZ(j, z);
       }
       p.needsUpdate = true;
-      f.m.material.opacity = 1 - smooth(4.5, 6.5, f.age);
-      if (f.age > 6.5) { scene.remove(f.m); f.m.geometry.dispose(); f.m.material.map.dispose(); f.m.material.dispose(); flyers.splice(i, 1); }
+      // it fades as it falls, and quickly once it's on the grass
+      f.m.material.opacity = Math.min(1 - smooth(1.1, 2.2, f.age), 1 - smooth(f.landed ?? 99, (f.landed ?? 99) + .6, f.age));
+      if (f.age > 2.2 || f.age > (f.landed ?? 99) + .6) { scene.remove(f.m); f.m.geometry.dispose(); f.m.material.map.dispose(); f.m.material.dispose(); flyers.splice(i, 1); }
     }
   }
 
