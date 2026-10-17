@@ -1,7 +1,7 @@
 // Sound for the backdrop, all synthesised with WebAudio (no audio files, so nothing to license).
 //   chime(kind, volume)   the new-question sound: 'marimba' | 'bowl' | 'dingdong' | 'none'
 //   setAmbience(volume)   the theme's background sound, 0 = off
-//   setAmbienceKind(kind) which one: 'fire' (crackling campfire, theme 1) | 'hum' (soft electronic hum, theme 2)
+//   setAmbienceKind(kind) which one: 'fire' (crackling campfire, theme 1) | 'rain' (rainy city night, theme 2) | 'hum'
 // Browsers only allow sound after a key press or click, so everything waits for unlock() (pressing F is enough).
 
 let ctx = null;
@@ -218,4 +218,66 @@ function makeHum() {
   };
 }
 
-const MAKERS = { fire: makeFire, hum: makeHum };
+// ------------------------------------------------------------------ rainy city night
+// Rain is a soft wash of filtered noise with a slow swell, plus fine pattering ticks; under it, a low distant
+// city rumble, and now and then a car hissing past on the wet road far away.
+function makeRain() {
+  const out = ctx.createGain();
+  out.gain.value = 0;
+  out.connect(master);
+  const len = ctx.sampleRate * 3;
+  const white = ctx.createBuffer(1, len, ctx.sampleRate), brown = ctx.createBuffer(1, len * 2, ctx.sampleRate);
+  { const w = white.getChannelData(0); for (let i = 0; i < w.length; i++) w[i] = Math.random() * 2 - 1;
+    const b = brown.getChannelData(0); let last = 0;
+    for (let i = 0; i < b.length; i++) { last = (last + .02 * (Math.random() * 2 - 1)) / 1.02; b[i] = last * 3.5; }
+    const n = ctx.sampleRate * .05; for (let i = 0; i < n; i++) { const k = i / n; b[i] *= k; b[b.length - 1 - i] *= k; } }
+  const loop = (buffer, type, freq, q, level) => {
+    const src = ctx.createBufferSource(); src.buffer = buffer; src.loop = true;
+    const f = ctx.createBiquadFilter(); f.type = type; f.frequency.value = freq; f.Q.value = q;
+    const g = ctx.createGain(); g.gain.value = level;
+    src.connect(f).connect(g).connect(out); src.start(0, Math.random() * buffer.duration);
+    return { f, g };
+  };
+  const wash = loop(white, 'bandpass', 2600, .45, .22);       // the rain itself
+  loop(white, 'highpass', 6500, .5, .05);                     // fine top end
+  loop(brown, 'lowpass', 140, .6, .35);                        // distant city rumble
+  // the rain swells and eases a little over time
+  const lfo = ctx.createOscillator(), depth = ctx.createGain();
+  lfo.frequency.value = .05; depth.gain.value = .06;
+  lfo.connect(depth).connect(wash.g.gain); lfo.start();
+  // patter: tiny soft ticks, scheduled slightly ahead
+  let ahead = 0, timer = null, carTimer = null;
+  const tick = (t) => {
+    const src = ctx.createBufferSource(); src.buffer = white;
+    const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 2500 + Math.random() * 5000; f.Q.value = 2;
+    const g = ctx.createGain(); const lvl = .03 + Math.pow(Math.random(), 3) * .12;
+    g.gain.setValueAtTime(lvl, t); g.gain.exponentialRampToValueAtTime(.0001, t + .015 + Math.random() * .02);
+    const p = ctx.createStereoPanner(); p.pan.value = Math.random() * 1.6 - .8;
+    src.connect(f).connect(g).connect(p).connect(out); src.start(t, Math.random() * 2.5, .05);
+  };
+  const schedule = () => {
+    const until = ctx.currentTime + .25;
+    while (ahead < until) { ahead += -Math.log(1 - Math.random()) / 22; tick(ahead); }
+  };
+  // a car hissing past on the wet road, far off: a slow swell of filtered noise panned across
+  const car = () => {
+    const t = ctx.currentTime + .1, dur = 3 + Math.random() * 2;
+    const src = ctx.createBufferSource(); src.buffer = white; src.loop = true;
+    const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.Q.value = .8;
+    f.frequency.setValueAtTime(700, t); f.frequency.linearRampToValueAtTime(1300, t + dur / 2); f.frequency.linearRampToValueAtTime(600, t + dur);
+    const g = ctx.createGain(); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(.12, t + dur / 2); g.gain.linearRampToValueAtTime(0, t + dur);
+    const p = ctx.createStereoPanner(); const side = Math.random() < .5 ? -1 : 1;
+    p.pan.setValueAtTime(-.8 * side, t); p.pan.linearRampToValueAtTime(.8 * side, t + dur);
+    src.connect(f).connect(g).connect(p).connect(out); src.start(t); src.stop(t + dur + .1);
+    carTimer = setTimeout(car, 9000 + Math.random() * 14000);
+  };
+  return {
+    setVolume(v) {
+      out.gain.setTargetAtTime(v * .9, ctx.currentTime, .4);
+      if (v > 0 && !timer) { ahead = ctx.currentTime + .1; timer = setInterval(schedule, 100); carTimer = setTimeout(car, 4000); }
+      if (v <= 0 && timer) { clearInterval(timer); clearTimeout(carTimer); timer = null; }
+    },
+  };
+}
+
+const MAKERS = { fire: makeFire, hum: makeHum, rain: makeRain };
