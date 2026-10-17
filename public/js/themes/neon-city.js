@@ -4,7 +4,10 @@
 //           stacked colourful billboards, red vertical signs
 //   right:  a big building with a large cyan LED screen (the question screen: questions, QR, partner logos),
 //           a text strip under it, pink-lit floors, a bright shop sign at street level; a purple building at the edge
-//   ground: a wide plaza with a dark tiled floor and red lane lines, people standing about
+//   ground: a wide plaza with a dark tiled floor, red lane lines, a zebra scramble and puddles
+// Depth comes in layers: power cables, lamps, vending machines and rails up close; projecting signs, AC units and
+// rooftop tanks mid-way; haze bands, a second skyline and lit clouds far off. A clock billboard in the centre, and a
+// "QUE" neon sign over the question screen that lights up for a new question.
 // Everything is static or eases slowly; no flashing (photosensitivity). No random events yet.
 import * as THREE from 'three';
 import { SimplexNoise } from 'three/addons/math/SimplexNoise.js';
@@ -14,8 +17,6 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { floatingLogo } from '../wall-art.js';
-import { makeBeacon } from '../alarm-light.js';
-import { makeFlipClock } from '../flip-clock.js';
 
 export const name = 'Neon city';
 export const ambience = 'city';
@@ -257,7 +258,6 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
   sign(posterTex(512, 384, 'anime'), 5.6, 4.2, { x: -2.6, y: 11.6, z: Z + 4.2, bright: 1, colour: '#9a6bff' });
   sign(posterTex(512, 384, 'game'), 4.6, 3.5, { x: 1.6, y: 7.6, z: Z + 4.2, bright: 1, colour: '#4fffd2' });
   sign(posterTex(384, 512, 'green'), 3.4, 4.5, { x: 5.6, y: 6.8, z: Z + 4.6, bright: 1, colour: '#2aff9a' });
-  sign(posterTex(512, 384, 'fashion'), 4.4, 3.2, { x: 5.4, y: 12.4, z: Z + 4.4, bright: 1, colour: '#a8d8ff' });
   sign(posterTex(512, 256, 'pink'), 4, 2, { x: -7, y: 10, z: Z + 4.4, bright: 1, colour: '#ff5a7a' });
   sign(signTex(512, 128, { bg: '#ffffff', fg: '#0a1a4a', text: 'CODE 8F' }), 2.6, .65, { x: 1.4, y: 10.6, z: Z + 4.3, bright: .95, colour: '#ffffff' });
   // red and pink vertical signs on the towers
@@ -269,7 +269,7 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
     const w = 1.6 + rnd() * 1.6;
     const col = pick(['#ffd8a0', '#ffe8c8', '#a8d0ff', '#ffb8e0', '#c8ffe0']);
     sign(signTex(256, 128, { bg: [col, '#ffffff'], fg: 'rgba(0,0,0,0)', text: ' ' }), w, 1.1 + rnd() * .6,
-      { x: -17 + i * 2.3 + rnd() * .4, y: .9, z: Z + 6 + rnd() * 2, frame: false, bright: .55 + rnd() * .25, colour: col });
+      { x: -17 + i * 2.3 + rnd() * .4, y: .9, z: Z + 6 + rnd() * 2, frame: false, bright: .22 + rnd() * .22, colour: col });
   }
   // little signs at street level far off
   for (let i = 0; i < 14; i++) {
@@ -336,21 +336,299 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
   // the bright shop sign at street level under it
   sign(signTex(768, 144, { bg: '#0a1238', fg: '#ffffff', text: 'AI BUILDER SCHOOL', border: '#3fa8ff', glow: 10 }), 4.4, .82,
     { ...(({ x, z }) => ({ x, z }))(onFront(1.6, 0, .3)), y: 3.6, rotY: RIGHT.rotY, bright: 1.05, colour: '#5fb8ff' });
-  // alarm light on the screen's top edge; a flip clock on the ledge beside the shop sign
-  const beacon = makeBeacon();
-  beacon.group.position.set(SCREEN_W / 2 - .5, SCREEN_H / 2 + .2, 0);
-  beacon.group.scale.setScalar(2.4);
-  billboard.add(beacon.group);
-  const clock = makeFlipClock();
-  clock.group.position.set(-SCREEN_W / 2 + 1, -SCREEN_H / 2 - 1.75, .1);
-  clock.group.scale.setScalar(2);
-  billboard.add(clock.group);
-
   scene.updateMatrixWorld(true);
   const screenWorld = screen.getWorldPosition(new THREE.Vector3());
   const screenNormal = new THREE.Vector3(0, 0, 1).applyQuaternion(screen.getWorldQuaternion(new THREE.Quaternion()));
   const FOCUS_D = (SCREEN_H / 2) / Math.tan(THREE.MathUtils.degToRad(BASE_FOV / 2)) * 1.25;
   const FOCUS = { look: screenWorld.clone(), pos: screenWorld.clone().addScaledVector(screenNormal, FOCUS_D) };
+
+  // ============================================================ the "QUE" neon sign (lights up for a new question)
+  // Neon tubes spelling QUE above the question screen. Unlit, the glass tubes are dim; when a question arrives
+  // (or the admin holds it on) it fades up to a bright pink glow with a slow, shallow breathing. No flashing.
+  const que = (() => {
+    const W = 1024, H = 384;
+    const paint = (lit) => {
+      const [c, x] = cnv(W, H);
+      x.font = `bold 300px ${SANS}`; x.textAlign = 'center'; x.textBaseline = 'middle';
+      x.lineJoin = 'round'; x.lineCap = 'round';
+      if (lit) {
+        x.shadowColor = '#ff2a8a'; x.shadowBlur = 40;
+        x.strokeStyle = '#ff4fa8'; x.lineWidth = 26; x.strokeText('QUE', W / 2, H / 2 + 10);
+        x.shadowBlur = 12; x.strokeStyle = '#ffd0ea'; x.lineWidth = 9; x.strokeText('QUE', W / 2, H / 2 + 10);
+      } else {
+        x.strokeStyle = 'rgba(120,70,100,.85)'; x.lineWidth = 18; x.strokeText('QUE', W / 2, H / 2 + 10);
+        x.strokeStyle = 'rgba(200,170,190,.35)'; x.lineWidth = 5; x.strokeText('QUE', W / 2, H / 2 + 6);
+      }
+      const t = tex(c);
+      return t;
+    };
+    const g = new THREE.Group();
+    // the backing: a dark panel the tubes are mounted on
+    const back = new THREE.Mesh(new THREE.BoxGeometry(3.3, 1.35, .12), new THREE.MeshStandardMaterial({ color: 0x120a18, roughness: .6, metalness: .3, flatShading: true }));
+    back.position.z = -.08; g.add(back);
+    const off = new THREE.Mesh(new THREE.PlaneGeometry(3.2, 1.2), new THREE.MeshBasicMaterial({ map: paint(false), transparent: true, depthWrite: false }));
+    const on = new THREE.Mesh(new THREE.PlaneGeometry(3.2, 1.2), new THREE.MeshBasicMaterial({ map: paint(true), transparent: true, opacity: 0, depthWrite: false, toneMapped: false }));
+    on.position.z = .01;
+    g.add(off, on);
+    const light = new THREE.PointLight(0xff3d9a, 0, 12, 1.6);
+    light.position.set(0, 0, 1.2); g.add(light);
+    let left = 0, held = false, level = 0;
+    return {
+      group: g,
+      trigger() { left = 6; },
+      hold(v) { held = v; },
+      update(dt, t) {
+        left = Math.max(0, left - dt);
+        const want = left > 0 || held ? 1 : 0;
+        level += (want - level) * Math.min(1, dt * (want ? 4 : 1.5));
+        const breathe = .85 + .15 * Math.sin(t * Math.PI * 2 * .5);       // half a breath a second: gentle
+        on.material.opacity = level * breathe;
+        on.material.color.setScalar(1 + level * .6);
+        off.material.opacity = 1 - level * .8;
+        light.intensity = level * 14 * breathe;
+      },
+    };
+  })();
+  que.group.position.set(-SCREEN_W / 2 + 1.9, SCREEN_H / 2 + 1.25, .1);
+  que.group.scale.setScalar(1.3);
+  billboard.add(que.group);
+
+  // ============================================================ the clock billboard (centre)
+  // A big neon LED clock with the date, on one of the centre billboards. Redrawn once a minute.
+  const clockSign = (() => {
+    const [c, x] = cnv(768, 512);
+    const t = tex(c);
+    let last = '';
+    const DAYS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+    const MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+    function draw(now = new Date()) {
+      const hh = String(now.getHours()).padStart(2, '0'), mm = String(now.getMinutes()).padStart(2, '0');
+      if (hh + mm === last) return;
+      last = hh + mm;
+      const g = x.createLinearGradient(0, 0, 0, 512);
+      g.addColorStop(0, '#08102e'); g.addColorStop(1, '#140a32');
+      x.fillStyle = g; x.fillRect(0, 0, 768, 512);
+      x.strokeStyle = '#3fe8ff'; x.lineWidth = 10; x.strokeRect(10, 10, 748, 492);
+      x.textAlign = 'center'; x.textBaseline = 'middle';
+      x.fillStyle = 'rgba(63,232,255,.08)'; x.font = `260px ${SANS}`; x.fillText('88:88', 384, 236);   // unlit segments
+      x.shadowColor = '#3fe8ff'; x.shadowBlur = 24; x.fillStyle = '#c8f8ff';
+      x.fillText(`${hh}:${mm}`, 384, 236);
+      x.shadowBlur = 10; x.fillStyle = '#ff7ad8'; x.font = `52px ${SANS}`;
+      x.fillText(`${DAYS[now.getDay()]}  ${String(now.getDate()).padStart(2, '0')} ${MONTHS[now.getMonth()]}`, 384, 430);
+      x.shadowBlur = 0;
+      t.needsUpdate = true;
+    }
+    draw();
+    return { texture: t, draw };
+  })();
+  sign(clockSign.texture, 4.6, 3.07, { x: 5.4, y: 12.6, z: Z + 4.4, bright: 1.05, colour: '#3fe8ff' });
+
+  // ============================================================ the LED ticker under the screen (scrolls slowly)
+  const ticker = (() => {
+    const [c, x] = cnv(2048, 64);
+    x.fillStyle = '#04081a'; x.fillRect(0, 0, 2048, 64);
+    x.fillStyle = '#ffb43a'; x.font = `bold 40px ${JP}`; x.textBaseline = 'middle';
+    x.shadowColor = '#ff9a2a'; x.shadowBlur = 8;
+    x.fillText('WELCOME TO THE CAVE   ·   質問はこちら   ·   SCAN THE QR TO ASK A QUESTION   ·   AI BUILDER SCHOOL   ·   ', 10, 34);
+    const t = tex(c); t.wrapS = THREE.RepeatWrapping; t.repeat.set(.5, 1);
+    sign(t, SCREEN_W, .36, { x: 0, y: -SCREEN_H / 2 - 1.05, z: .05, frame: false, bright: 1, colour: '#ffb43a', parent: billboard });
+    return t;
+  })();
+
+  // ============================================================ depth: foreground
+  const metal = new THREE.MeshStandardMaterial({ color: 0x1c1e2c, roughness: .5, metalness: .6, flatShading: true });
+  const black = new THREE.MeshStandardMaterial({ color: 0x07070c, roughness: .8, flatShading: true });
+  // utility poles with cross-arms and transformers, and power cables sagging across the top of the frame
+  const poleTops = [];
+  for (const [x, z, h] of [[-5.8, 8.4, 11], [7.6, 7.4, 11.5], [-4.8, -9, 10], [9.6, -16, 10.5], [-11, -20, 10]]) {
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(.13, .17, h, 6), metal);
+    pole.position.set(x, h / 2, z); scene.add(pole);
+    for (const y of [h - .5, h - 1.3]) {
+      const arm = new THREE.Mesh(new THREE.BoxGeometry(1.9, .09, .09), metal);
+      arm.position.set(x, y, z); arm.rotation.y = .3; scene.add(arm);
+    }
+    const tr = new THREE.Mesh(new THREE.CylinderGeometry(.24, .24, .7, 6), metal);
+    tr.position.set(x + .35, h - 2.4, z); scene.add(tr);
+    poleTops.push(new THREE.Vector3(x, h - .5, z));
+  }
+  {
+    const wire = new THREE.MeshBasicMaterial({ color: 0x2a2048 });    // dark violet: shows against the glowing sky
+    const span = (a, b, k, sag) => {
+      const off = new THREE.Vector3(.7 * (k - 1), -.8 * (k > 2 ? 1 : 0), 0);
+      const p0 = a.clone().add(off), p1 = b.clone().add(off);
+      const mid = p0.clone().lerp(p1, .5); mid.y -= sag;
+      const curve = new THREE.QuadraticBezierCurve3(p0, mid, p1);
+      scene.add(new THREE.Mesh(new THREE.TubeGeometry(curve, 16, .032, 3), wire));
+    };
+    // (no span runs in front of the question screen: a cable across the QR would spoil scanning)
+    for (const [i, j, sag] of [[0, 1, 2.2], [0, 2, 1.4], [2, 4, 1.2], [2, 3, 1.8]]) {
+      for (let k = 0; k < 4; k++) span(poleTops[i], poleTops[j], k, sag + k * .15);
+    }
+  }
+  // street lamps: a warm head and a pool of light on the paving
+  const poolTex = (() => {
+    const [c, x] = cnv(128, 128);
+    const g = x.createRadialGradient(64, 64, 0, 64, 64, 64);
+    g.addColorStop(0, 'rgba(255,255,255,.9)'); g.addColorStop(.5, 'rgba(255,255,255,.3)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+    x.fillStyle = g; x.fillRect(0, 0, 128, 128);
+    return new THREE.CanvasTexture(c);
+  })();
+  const pool = (x, z, r, colour, opacity) => {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(r * 2, r * 2), new THREE.MeshBasicMaterial({ map: poolTex, color: colour, transparent: true, opacity, depthWrite: false, blending: THREE.AdditiveBlending }));
+    m.rotation.x = -Math.PI / 2; m.position.set(x, .02, z); scene.add(m);
+  };
+  for (const [x, z, dir] of [[-5.6, 6, 1], [-2.4, -12, 1], [4.8, -14, -1], [-9.6, -4, 1]]) {
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(.07, .09, 6, 6), metal);
+    pole.position.set(x, 3, z); scene.add(pole);
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(1.4, .07, .07), metal);
+    arm.position.set(x + dir * .6, 5.95, z); scene.add(arm);
+    const head = new THREE.Mesh(new THREE.BoxGeometry(.6, .12, .3), new THREE.MeshBasicMaterial({ color: new THREE.Color(0xffd8a0).multiplyScalar(1.6), toneMapped: false }));
+    head.position.set(x + dir * 1.2, 5.85, z); scene.add(head);
+    pool(x + dir * 1.2, z, 3.2, 0xffc890, .22);
+  }
+  // vending machines glowing by the left building
+  {
+    const [c, x] = cnv(128, 256);
+    x.fillStyle = '#e8f2ff'; x.fillRect(0, 0, 128, 256);
+    for (let j = 0; j < 4; j++) for (let i = 0; i < 6; i++) {
+      x.fillStyle = pick(['#ff4a4a', '#3a8aff', '#ffd23a', '#3aff9a', '#ff8a3a', '#ffffff']);
+      x.fillRect(10 + i * 19, 20 + j * 34, 13, 24);
+    }
+    x.fillStyle = '#1a2a4a'; x.fillRect(10, 170, 108, 60);
+    const front = tex(c);
+    for (const [vx, vz] of [[-7.4, 3.2], [-7.4, 4.3]]) {
+      const box = new THREE.Mesh(new THREE.BoxGeometry(.9, 1.85, .75), [black, black, black, black,
+        new THREE.MeshBasicMaterial({ map: front, toneMapped: false, color: new THREE.Color().setScalar(.55) }), black]);
+      box.position.set(vx, .93, vz); box.rotation.y = .9;   // facing across the plaza
+      scene.add(box);
+    }
+    pool(-6.6, 4.4, 2.2, 0xd8e8ff, .18);
+  }
+  // guard rails along the plaza's edges
+  {
+    const parts = [];
+    const rail = (x0, z0, x1, z1) => {
+      const len = Math.hypot(x1 - x0, z1 - z0), ang = Math.atan2(z1 - z0, x1 - x0);
+      for (const y of [.55, .95]) {
+        const r = new THREE.Mesh(new THREE.BoxGeometry(len, .05, .05), metal);
+        r.position.set((x0 + x1) / 2, y, (z0 + z1) / 2); r.rotation.y = -ang; scene.add(r);
+      }
+      for (let k = 0; k <= Math.floor(len / 1.4); k++) {
+        const u = k / Math.max(1, Math.floor(len / 1.4));
+        const p = new THREE.Mesh(new THREE.BoxGeometry(.06, 1, .06), metal);
+        p.position.set(x0 + (x1 - x0) * u, .5, z0 + (z1 - z0) * u); scene.add(p);
+      }
+    };
+    rail(-14, 8, -8.5, 10.5); rail(8.6, 9.5, 14, 6.5); rail(-13, -9, -6.5, -10.5);
+  }
+  // zebra scramble: stripes across the crossing, catching the sign light
+  {
+    const stripe = new THREE.MeshStandardMaterial({ color: 0x9a9cb8, roughness: .3, metalness: .3 });
+    for (let i = 0; i < 11; i++) {
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(.6, 7), stripe);
+      m.rotation.x = -Math.PI / 2; m.position.set(-6 + i * 1.2, .012, -1.5); scene.add(m);
+    }
+    for (let i = 0; i < 6; i++) {
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(10, .55), stripe);
+      m.rotation.x = -Math.PI / 2; m.rotation.z = .55; m.position.set(-1 + i * .2, .013, -8.5 + i * 1.1); scene.add(m);
+    }
+  }
+  // puddles: dark mirror-like patches that show the sign reflections sharper
+  for (const [x, z, sx, sz] of [[-2.6, 6.5, 2.6, 1.1], [3.4, 2.4, 2, .8], [-5.2, -3, 1.8, .7], [1.2, -5.5, 2.4, .9]]) {
+    const m = new THREE.Mesh(new THREE.CircleGeometry(1, 10), new THREE.MeshStandardMaterial({ color: 0x05050c, roughness: .04, metalness: .95 }));
+    m.rotation.x = -Math.PI / 2; m.scale.set(sx, sz, 1); m.position.set(x, .014, z); scene.add(m);
+  }
+
+  // ============================================================ depth: detail on the buildings
+  // signs sticking out from the walls (they read strongly as depth), AC units, rooftop tanks and antennas
+  for (const [text, fg, bg, x, y, z, ry, h] of [
+    ['ホテル', '#ffffff', '#c81a5a', -8.8, 6.2, 1.6, .62 + Math.PI / 2, 2.6], ['居酒屋', '#ffe0a0', '#8a1a1a', -8.8, 3.4, -1.2, .62 + Math.PI / 2, 2.2],
+    ['薬', '#ffffff', '#1a8a3a', -8.9, 7.8, -3.6, .62 + Math.PI / 2, 1.2], ['カラオケ', '#ffffff', '#6a1aff', 17.9, 6.4, 1.8, -.4 - Math.PI / 2, 2.8],
+    ['24H', '#1a1a1a', '#ffd23a', 18.4, 3.4, 3.2, -.4 - Math.PI / 2, 1.2], ['寿司', '#ffffff', '#d01a2a', -3.4, 6, Z + 6.2, Math.PI / 2, 1.8],
+    ['BAR', '#ff7ad8', '#120a20', 2.6, 5.2, Z + 6.2, Math.PI / 2, 1.6], ['ゲーム', '#3fe8ff', '#0a1430', 7.8, 8.2, Z + 5, Math.PI / 2, 2.4],
+  ]) {
+    const t = verticalTex(text, fg, bg);
+    const box = new THREE.Mesh(new THREE.BoxGeometry(.14, h, .62 * (text.length > 2 ? 1 : 1)), [
+      new THREE.MeshBasicMaterial({ map: t, toneMapped: false }), new THREE.MeshBasicMaterial({ map: t, toneMapped: false }), black, black, black, black,
+    ]);
+    box.position.set(x, y, z); box.rotation.y = ry;
+    scene.add(box);
+    glows.push({ obj: box, colour: bg, width: .8 });
+  }
+  {
+    // AC units on the side walls, instanced
+    const ac = new THREE.InstancedMesh(new THREE.BoxGeometry(.7, .5, .35), new THREE.MeshStandardMaterial({ color: 0x3a3e4a, roughness: .7, flatShading: true }), 40);
+    const o = new THREE.Object3D();
+    for (let i = 0; i < 40; i++) {
+      const left = i < 22;
+      if (left) { o.position.set(-9.1 + (rnd() - .5) * .1, 1.6 + Math.floor(rnd() * 9) * 1.05, 6 - rnd() * 9); o.rotation.y = .62 + Math.PI / 2; }
+      else { const p = onFront(-5.6 + rnd() * 2, 2 + Math.floor(rnd() * 6) * 1.2, .2); o.position.copy(p); o.rotation.y = RIGHT.rotY; }
+      o.updateMatrix(); ac.setMatrixAt(i, o.matrix);
+    }
+    scene.add(ac);
+    // rooftop water tanks and antennas (with a steady red aircraft light)
+    const red = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xff2030).multiplyScalar(1.2), toneMapped: false });
+    for (const [x, y, z] of [[-13, 11, 1], [4.2, 19.5, Z], [-5.2, 17, Z], [15.5, 18, -12], [21, 18, 4], [9.2, 15, Z - 2]]) {
+      const tank = new THREE.Mesh(new THREE.CylinderGeometry(.7, .7, 1.2, 7), metal);
+      tank.position.set(x + .8, y + .6, z); scene.add(tank);
+      const mast = new THREE.Mesh(new THREE.CylinderGeometry(.04, .06, 3.2, 4), metal);
+      mast.position.set(x - .6, y + 1.6, z + .4); scene.add(mast);
+      const tip = new THREE.Mesh(new THREE.SphereGeometry(.09, 6, 4), red);
+      tip.position.set(x - .6, y + 3.25, z + .4); scene.add(tip);
+    }
+  }
+  // more signs packed on the centre towers, at every height
+  for (let i = 0; i < 16; i++) {
+    const col = pick(['#ff4fa0', '#4fd8ff', '#ffd24f', '#9a7bff', '#4fff9a', '#ff6a4a', '#ffffff']);
+    const bgc = pick(['#0c0c22', '#140a28', '#0a1428']);
+    const word = pick(['SALE', 'NEW', 'カフェ', '本', 'CINEMA', 'ラーメン', 'GAME', 'FASHION', '音楽', 'BEAUTY', 'CLUB', '2F', '5F', 'OPEN']);
+    sign(signTex(320, 120, { bg: bgc, fg: col, text: word, font: JP, glow: 8, border: col }), 1.6 + rnd() * 1.2, .6 + rnd() * .3,
+      { x: -9 + rnd() * 19, y: 3 + rnd() * 13, z: Z + 4.6 + rnd() * .6, bright: .95, colour: col });
+  }
+
+  // ============================================================ depth: distance
+  // a second skyline further off, and haze bands between the layers so each one separates from the next
+  for (let i = 0; i < 16; i++) building({ x: -44 + i * 6 + rnd() * 2, z: -78 - rnd() * 8, w: 5 + rnd() * 3, h: 14 + rnd() * 20, d: 5, lit: .05 });
+  {
+    const [c, x] = cnv(16, 128);
+    const g = x.createLinearGradient(0, 0, 0, 128);
+    g.addColorStop(0, 'rgba(255,255,255,0)'); g.addColorStop(.7, 'rgba(255,255,255,.55)'); g.addColorStop(1, 'rgba(255,255,255,.9)');
+    x.fillStyle = g; x.fillRect(0, 0, 16, 128);
+    const hazeTex = new THREE.CanvasTexture(c);
+    for (const [z, w, h, colour, op] of [[-24, 70, 10, 0x6a3ab0, .16], [-46, 110, 16, 0x5a2aa0, .22], [-70, 160, 24, 0x3a1a80, .25]]) {
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map: hazeTex, color: colour, transparent: true, opacity: op, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }));
+      m.position.set(0, h / 2 - .5, z); scene.add(m);
+    }
+  }
+  // low clouds lit from below by the city, drifting very slowly
+  const clouds = [];
+  for (let i = 0; i < 7; i++) {
+    const cl = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 0), new THREE.MeshBasicMaterial({ color: new THREE.Color(0x2a1a50).multiplyScalar(.9 + rnd() * .4), transparent: true, opacity: .55, fog: false, depthWrite: false }));
+    cl.scale.set(14 + rnd() * 10, 1.6 + rnd(), 6);
+    cl.position.set(-50 + i * 17, 34 + rnd() * 10, -88 - rnd() * 6);
+    cl.rotation.set(rnd() * .3, rnd(), rnd() * .3);
+    scene.add(cl); clouds.push(cl);
+  }
+  // steam rising from a street vent, near right
+  const steam = (() => {
+    const N = 40, pos = new Float32Array(N * 3), seeds = new Float32Array(N);
+    for (let i = 0; i < N; i++) { pos.set([4.6, 0, 8.5], i * 3); seeds[i] = rnd() * 10; }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    g.setAttribute('seed', new THREE.BufferAttribute(seeds, 1));
+    const m = new THREE.ShaderMaterial({
+      uniforms: { uTime: { value: 0 } }, transparent: true, depthWrite: false,
+      vertexShader: `attribute float seed; uniform float uTime; varying float vA;
+        void main(){ float u = fract(uTime * .08 + seed * .1); vec3 p = position;
+          p.y += u * 4.; p.x += sin(u * 5. + seed) * .6 * u; p.z += cos(u * 4. + seed) * .4 * u;
+          vA = sin(u * 3.14159) * .3; vec4 mv = modelViewMatrix * vec4(p, 1.);
+          gl_PointSize = (90. + u * 160.) / -mv.z; gl_Position = projectionMatrix * mv; }`,
+      fragmentShader: `varying float vA; void main(){ float d = length(gl_PointCoord - .5); float a = smoothstep(.5, 0., d) * vA;
+        gl_FragColor = vec4(vec3(.7, .65, .9) * a, a); }`,
+    });
+    scene.add(new THREE.Points(g, m));
+    return m;
+  })();
 
   // ============================================================ reflections of the signs on the polished paving
   {
@@ -374,67 +652,6 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
       m.position.set(p.x * .92, .015, Math.min(p.z + 2, 6) + len / 2);
       scene.add(m);
     }
-  }
-
-  // ============================================================ the crowd (instanced low-poly people)
-  // Simple figures: two legs, a tapered torso with arms, a head; dark clothes with a few light shirts and a red
-  // jacket. Mostly standing, a slight idle sway. Denser toward the far side of the plaza, like the photo.
-  const PEOPLE = 150;
-  const legsGeo = (() => {
-    const a = new THREE.BoxGeometry(.13, .82, .15); a.translate(-.09, .41, 0);
-    const b = new THREE.BoxGeometry(.13, .82, .15); b.translate(.09, .41, 0);
-    const g = new THREE.BufferGeometry();
-    const merged = [a, b].map((x) => x.toNonIndexed());
-    const pos = new Float32Array(merged.reduce((n, x) => n + x.attributes.position.array.length, 0));
-    let o = 0; for (const x of merged) { pos.set(x.attributes.position.array, o); o += x.attributes.position.array.length; }
-    g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.computeVertexNormals();
-    return g;
-  })();
-  // torso with shoulders and arms hanging at the sides, all one piece
-  const torsoGeo = (() => {
-    const parts = [];
-    const chest = new THREE.CylinderGeometry(.22, .16, .6, 6); chest.scale(1, 1, .62); chest.translate(0, 1.12, 0); parts.push(chest);
-    for (const sx of [-1, 1]) {
-      const arm = new THREE.BoxGeometry(.09, .62, .11); arm.rotateZ(sx * .08); arm.translate(sx * .27, 1.06, 0); parts.push(arm);
-    }
-    const neck = new THREE.CylinderGeometry(.05, .06, .1, 5); neck.translate(0, 1.46, 0); parts.push(neck);
-    const g = new THREE.BufferGeometry();
-    const flat = parts.map((x) => x.toNonIndexed());
-    const pos = new Float32Array(flat.reduce((n, x) => n + x.attributes.position.array.length, 0));
-    let o = 0; for (const x of flat) { pos.set(x.attributes.position.array, o); o += x.attributes.position.array.length; }
-    g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.computeVertexNormals();
-    return g;
-  })();
-  const headGeo = new THREE.IcosahedronGeometry(.13, 1); headGeo.scale(.9, 1.05, .95); headGeo.translate(0, 1.62, 0);
-  const mat = (opts) => new THREE.MeshStandardMaterial({ roughness: .75, flatShading: true, ...opts });
-  const legs = new THREE.InstancedMesh(legsGeo, mat({ color: 0xffffff }), PEOPLE);
-  const torsos = new THREE.InstancedMesh(torsoGeo, mat({ color: 0xffffff }), PEOPLE);
-  const heads = new THREE.InstancedMesh(headGeo, mat({ color: 0x1c1418 }), PEOPLE);
-  const DARKS = [0x14141c, 0x1a1a24, 0x101018, 0x22202a, 0x18141c].map((h) => new THREE.Color(h));
-  const SHIRTS = [0xd8dce8, 0xc8ccd8, 0xb8c8e8, 0xb02a3a, 0x3a5aa8].map((h) => new THREE.Color(h));
-  const people = [];
-  for (let i = 0; i < PEOPLE; i++) {
-    // more of them farther back: a band along the far side, a scatter across the plaza, a few close by
-    const r = rnd();
-    const z = r < .5 ? -8 + rnd() * 4 : r < .88 ? -4 + rnd() * 10 : 7 + rnd() * 5;
-    const spread = z > 7 ? 9 : 15;
-    const x = (rnd() - .5) * 2 * spread;
-    if (Math.abs(x - 0) < 1.4 && z > 10) { i--; continue; }      // keep the space right in front of the camera clear
-    people.push({ x, z, face: rnd() * Math.PI * 2, s: .92 + rnd() * .16, phase: rnd() * 6 });
-    legs.setColorAt(i, pick(DARKS));
-    torsos.setColorAt(i, rnd() < .22 ? pick(SHIRTS) : pick(DARKS));
-  }
-  for (const m of [legs, torsos, heads]) { m.frustumCulled = false; scene.add(m); }
-  const o3 = new THREE.Object3D();
-  function placePeople(t) {
-    people.forEach((p, i) => {
-      o3.position.set(p.x, 0, p.z);
-      o3.rotation.set(0, p.face + Math.sin(t * .2 + p.phase) * .15, Math.sin(t * .6 + p.phase) * .012);   // a slow, slight idle
-      o3.scale.setScalar(p.s);
-      o3.updateMatrix();
-      legs.setMatrixAt(i, o3.matrix); torsos.setMatrixAt(i, o3.matrix); heads.setMatrixAt(i, o3.matrix);
-    });
-    legs.instanceMatrix.needsUpdate = torsos.instanceMatrix.needsUpdate = heads.instanceMatrix.needsUpdate = true;
   }
 
   // ============================================================ lights
@@ -545,8 +762,8 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
 
   return {
     onSwitch() {},
-    onQuestion() { beacon.trigger(); },
-    setAlarm(on) { beacon.hold(on); },
+    onQuestion() { que.trigger(); },
+    setAlarm(on) { que.hold(on); },
     setChromatic(on, amount = .6) { chromaWant = on ? amount / .6 : 0; },
     setPresenter(p) {
       const key = p ? `${p.name}|${p.title || ''}` : null;
@@ -558,7 +775,9 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
 
     update(dt) {
       t += dt;
-      placePeople(t);
+      ticker.offset.x = (t * .02) % 1;                        // the LED ticker creeps along
+      for (const [i, c] of clouds.entries()) c.position.x += dt * (.15 + i * .02);
+      steam.uniforms.uTime.value = t;
 
       logo.position.y = LOGO_Y + Math.sin(t * .6) * .1;
       logo.rotation.y = .14 + Math.sin(t * .23) * .06;
@@ -567,8 +786,8 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
       screenMat.uniforms.uFocus.value = focus;
       glow += ((tvScreen.isLive ? 1 : 0) - glow) * Math.min(1, dt * 1.5);
       screenLight.intensity = 12 + glow * 4;
-      beacon.update(dt, t);
-      clock.update(dt);
+      que.update(dt, t);
+      clockSign.draw();
       presenterFade += (presenterWant - presenterFade) * Math.min(1, dt * 4);
       presenterMat.opacity = presenterFade;
       presenterLabel.visible = presenterFade > .01;
