@@ -1,12 +1,14 @@
-// Theme 2 — a sunny low-poly alpine valley. Standing on a grassy hill: a turquoise lake below with a footbridge,
-// log cabins with a jetty and a rowboat on its shore, layered pines and round trees, grass-topped cliffs round
-// the valley with a cave in the back wall (a warm glow inside: the cave from theme 1), snow-capped peaks rising
-// behind. The logo floats in the sky, and the notice board stands where theme 1's TV is: both are
-// solved at load so they land on the same spot and size on screen as in theme 1.
-// The questions go up on the notice board: one pinned sheet at a time (QR code, a question, or a partner's
-// logo). When the slideshow moves on, the sheet is ripped off its pin and flutters away across the valley on the
-// wind, and a fresh one is pinned up. A bell swings and a lantern glows for a new question; a clock sits in the
-// board's gable. Birds circle, clouds drift, chimney smoke billows. Nothing flashes.
+// Theme 2 — a sunny low-poly highland valley in Malaysia. Standing on a grassy hill: a lake below with a footbridge,
+// log cabins with a jetty and a rowboat on its shore, native trees (towering tualang, broadleaf rainforest trees,
+// coconut palms, banana plants, tree ferns, bamboo), grass-topped cliffs round the valley with an old timber-framed
+// mine entrance at the foot of the back cliff (a warm glow inside: the cave from theme 1), forested peaks behind.
+// The logo floats in the sky, and the notice board stands where theme 1's TV is: both are solved at load so they
+// land on the same spot and size on screen as in theme 1.
+// The questions go up on the notice board: one pinned sheet at a time (QR code, a question, or a partner's logo).
+// When the slideshow moves on, the sheet is ripped off its pin and flutters away across the valley on the wind, and
+// a fresh one is pinned up. Partner logos sit on the notes in the margins. A bell swings and a lantern glows for a
+// new question; theme 1's flip clock stands under the board's gable. Birds circle, clouds drift, chimney smoke
+// billows. Nothing flashes.
 import * as THREE from 'three';
 import { SimplexNoise } from 'three/addons/math/SimplexNoise.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
@@ -16,8 +18,9 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { floatingLogo } from '../wall-art.js';
+import { makeFlipClock } from '../flip-clock.js';
 
-export const name = 'Alpine valley';
+export const name = 'Highland valley';
 export const ambience = 'meadow';
 
 // handwriting for the questions: bold, so it reads from the back of the room
@@ -67,6 +70,15 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
     h += fbm(x * .06, z * .06) * 1.1 + simplex.noise(x * .25, z * .25) * .15;
     return h;
   }
+  // the land mesh's actual surface (flat triangles between groundY samples), for things that must lie right on it
+  const LAND = { w: 170, d: 150, nx: 84, nz: 74, z: -45 };
+  function landY(x, z) {
+    const sx = LAND.w / LAND.nx, sz = LAND.d / LAND.nz;
+    const X = (i) => i * sx - LAND.w / 2, Z = (j) => LAND.z - LAND.d / 2 + j * sz;
+    const fx = (x + LAND.w / 2) / sx, fz = (z - Z(0)) / sz, i = Math.floor(fx), j = Math.floor(fz), u = fx - i, v = fz - j;
+    const a = groundY(X(i), Z(j)), b = groundY(X(i), Z(j + 1)), c = groundY(X(i + 1), Z(j + 1)), d = groundY(X(i + 1), Z(j));
+    return u + v <= 1 ? a + u * (d - a) + v * (b - a) : c + (1 - u) * (b - c) + (1 - v) * (d - c);   // PlaneGeometry's split
+  }
   // up on the hill, looking down into the valley
   const CAM = new THREE.Vector3(0, groundY(0, 22) + 4.6, 22);
   const HOME = { pos: CAM.clone(), look: new THREE.Vector3(.6, 3, -14) };
@@ -110,9 +122,9 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
   const GRASS = [0x5a9a40, 0x60a044, 0x54933c, 0x66a64a].map(hex);         // softer, less saturated greens
   const DRY = hex(0xa8a868), DIRT = hex(0x7e7048), SHORE = hex(0x8ab070);
   {
-    const g = new THREE.PlaneGeometry(170, 150, 84, 74).toNonIndexed();
+    const g = new THREE.PlaneGeometry(LAND.w, LAND.d, LAND.nx, LAND.nz).toNonIndexed();
     g.rotateX(-Math.PI / 2);
-    g.translate(0, 0, -45);
+    g.translate(0, 0, LAND.z);
     const p = g.attributes.position;
     for (let i = 0; i < p.count; i++) p.setY(i, groundY(p.getX(i), p.getZ(i)));
     const col = new Float32Array(p.count * 3), c = new THREE.Color();
@@ -202,48 +214,130 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
   // a mesh from parts: [geometry, colour] pairs merged into one vertex-coloured mesh
   const build = (parts, opts) => { const m = new THREE.Mesh(solid(parts.map(([g, c, v]) => paint(g, c, v))), vcMat(opts)); m.castShadow = m.receiveShadow = true; return m; };
 
-  // ============================================================ trees
-  const pineGeo = (() => {
-    const parts = [paint(new THREE.CylinderGeometry(.11, .16, 1.1, 6).translate(0, .55, 0), 0x5e3c24)];
-    const tiers = [[1.25, 1.35, .95], [1.02, 1.2, 1.6], [.78, 1.1, 2.2], [.5, 1.0, 2.75]];
-    const shades = [0x377a32, 0x3f8438, 0x488e40, 0x529848];
-    tiers.forEach(([r, hgt, y], k) => {
-      const cone = new THREE.ConeGeometry(r, hgt, 8, 1).toNonIndexed();
-      const p = cone.attributes.position;
-      for (let i = 0; i < p.count; i++) if (p.getY(i) < 0) {
-        const a = Math.atan2(p.getZ(i), p.getX(i));
-        const k2 = 1 + Math.sin(a * 3 + k) * .08;
-        p.setXYZ(i, p.getX(i) * k2, p.getY(i) - .08 * Math.abs(Math.sin(a * 4 + k)), p.getZ(i) * k2);
-      }
-      cone.translate(0, y + hgt / 2 - .2, 0);
-      parts.push(paint(cone, shades[k]));
-    });
-    return solid(parts);
-  })();
-  const roundGeo = (() => {
-    const parts = [paint(new THREE.CylinderGeometry(.08, .13, 1.6, 5).translate(0, .8, 0), 0x5e3c24)];
-    for (const [x, y, z, r] of [[0, 2.0, 0, .85], [.45, 1.75, .2, .6], [-.4, 1.8, -.15, .62], [.1, 2.45, -.1, .55]]) {
-      parts.push(paint(jitter(new THREE.IcosahedronGeometry(r, 0), .12).translate(x, y, z), rnd() < .5 ? 0x6ea44a : 0x669c44));
+  // ============================================================ trees: Malaysian natives
+  // Tualang (the rainforest's towering emergent: a pale, straight trunk on buttress roots, a broad flat crown),
+  // broadleaf rainforest trees, coconut palms, banana plants, tree ferns, and bamboo along the shore.
+  const LEAF = [0x3d6c33, 0x46773a, 0x4f8040, 0x588946];
+  const leaf = () => LEAF[Math.floor(rnd() * LEAF.length)];
+  // a long leaf lying along +x, its width set by shape(u) and its rise and droop by arch(u) (u 0 at the stem .. 1 at the tip)
+  const blade = (L, segs, shape, arch, fold = .3) => {
+    const g = new THREE.PlaneGeometry(1, 1, segs, 2), p = g.attributes.position;
+    for (let i = 0; i < p.count; i++) {
+      const u = p.getX(i) + .5, across = p.getY(i) * 2 * shape(u);
+      p.setXYZ(i, u * L, arch(u) + Math.abs(across) * fold, across);
+    }
+    return g;
+  };
+  const tualangGeo = (() => {
+    const BARK = 0xb3a78f;
+    const parts = [paint(new THREE.CylinderGeometry(.11, .2, 4.4, 6).translate(0, 2.2, 0), BARK, .08)];
+    for (let k = 0; k < 4; k++) {                                         // buttress roots: thin fins flaring at the foot
+      const fin = new THREE.ExtrudeGeometry(new THREE.Shape([new THREE.Vector2(0, 0), new THREE.Vector2(.75, 0), new THREE.Vector2(0, 1.2)]), { depth: .07, bevelEnabled: false });
+      fin.translate(.08, 0, -.035); fin.rotateY(k * Math.PI / 2 + .4);
+      parts.push(paint(fin, 0xa49880, .08));
+    }
+    for (let k = 0; k < 3; k++) {                                         // limbs reaching out under the crown
+      const g = new THREE.CylinderGeometry(.04, .07, 1.2, 5).translate(0, .6, 0);
+      g.rotateZ(1); g.rotateY(k * 2.1); g.translate(0, 3.8, 0);
+      parts.push(paint(g, BARK));
+    }
+    for (const [x, y, z, r] of [[0, 4.75, 0, 1.25], [1, 4.45, .3, .85], [-.95, 4.5, -.2, .9], [.2, 4.42, -1, .82], [-.3, 4.38, .95, .8], [.5, 5.1, .2, .7]]) {
+      const g = jitter(new THREE.IcosahedronGeometry(r, 0), .15); g.scale(1, .5, 1); g.translate(x, y, z);
+      parts.push(paint(g, leaf()));
     }
     return solid(parts);
   })();
-  const pines = [], rounds = [];
+  const roundGeo = (() => {                                               // a broadleaf rainforest tree
+    const parts = [paint(new THREE.CylinderGeometry(.08, .14, 1.7, 5).translate(0, .85, 0), 0x6a4c34)];
+    for (const [x, y, z, r] of [[0, 2.1, 0, .9], [.55, 1.85, .2, .62], [-.5, 1.9, -.15, .66], [.1, 2.55, -.1, .58], [-.15, 1.8, .55, .55]]) {
+      const g = jitter(new THREE.IcosahedronGeometry(r, 0), .12); g.scale(1, .78, 1); g.translate(x, y, z);
+      parts.push(paint(g, leaf()));
+    }
+    return solid(parts);
+  })();
+  const palmGeo = (() => {                                                // a coconut palm, its trunk curving as it climbs
+    const parts = [], H = 4.4, BEND = .9, segs = 7;
+    const at = (u) => new THREE.Vector3(Math.pow(u, 2) * BEND, u * H, 0);
+    for (let i = 0; i < segs; i++) {
+      const a = at(i / segs), b = at((i + 1) / segs), len = a.distanceTo(b);
+      const g = new THREE.CylinderGeometry(.1 - i * .004, .12 - i * .004, len, 6);
+      g.rotateZ(-Math.atan2(b.x - a.x, b.y - a.y)); g.translate((a.x + b.x) / 2, (a.y + b.y) / 2, 0);
+      parts.push(paint(g, i % 2 ? 0x8a7454 : 0x7a6646, .05));            // the rings of old leaf scars
+    }
+    const top = at(1);
+    for (let k = 0; k < 9; k++) {
+      const L = 1.9 + rnd() * .5;
+      const g = blade(L, 6, (u) => Math.sin(Math.min(1, .1 + u) * Math.PI) * .26 + .02, (u) => .35 * Math.sin(u * Math.PI * .7) - u * u * 1.15, .25);
+      g.rotateY(k / 9 * Math.PI * 2 + rnd() * .3); g.translate(top.x, top.y, top.z);
+      parts.push(paint(g, k % 2 ? 0x55893a : 0x4c7f34));
+    }
+    for (let k = 0; k < 4; k++) parts.push(paint(new THREE.IcosahedronGeometry(.11, 0).translate(top.x + Math.cos(k * 1.6) * .14, top.y - .16, Math.sin(k * 1.6) * .14), 0x6e5a2a));
+    return solid(parts);
+  })();
+  const bananaGeo = (() => {                                              // a banana plant: broad paddle leaves, one torn narrow
+    const parts = [paint(new THREE.CylinderGeometry(.09, .13, 1.3, 6).translate(0, .65, 0), 0x6f8a3a, .1)];
+    for (let k = 0; k < 6; k++) {
+      const L = 1.3 + rnd() * .4;
+      const g = blade(L, 5, (u) => Math.sin(Math.min(1, .12 + u * .92) * Math.PI) * (k === 2 ? .2 : .34) + .03, (u) => .55 * Math.sin(u * Math.PI * .8) - u * u * .55, .12);
+      g.rotateY(k / 6 * Math.PI * 2 + rnd() * .5); g.translate(0, 1.1 + rnd() * .25, 0);
+      parts.push(paint(g, k % 2 ? 0x6aa040 : 0x5e9638));
+    }
+    return solid(parts);
+  })();
+  const fernGeo = (() => {                                                // a tree fern: a dark stem, a crown of arching fronds
+    const parts = [paint(new THREE.CylinderGeometry(.08, .12, 1.6, 6).translate(0, .8, 0), 0x4a3424, .1)];
+    for (let k = 0; k < 10; k++) {
+      const g = blade(1.15 + rnd() * .3, 6, (u) => Math.sin(u * Math.PI) * .17 + .01, (u) => .45 * u - u * u * .85, .2);
+      g.rotateY(k / 10 * Math.PI * 2 + rnd() * .3); g.translate(0, 1.6, 0);
+      parts.push(paint(g, k % 2 ? 0x4f8a3a : 0x5a9442));
+    }
+    return solid(parts);
+  })();
+  const bambooGeo = (() => {                                              // a clump of bamboo, leaning out, with leafy tips
+    const parts = [], Z = new THREE.Vector3(0, 0, 1), Y = new THREE.Vector3(0, 1, 0);
+    for (let k = 0; k < 9; k++) {
+      const a = rnd() * Math.PI * 2, r = rnd() * .35, h = 2.6 + rnd() * 1.6, lean = .1 + rnd() * .16;
+      const foot = new THREE.Vector3(Math.cos(a) * r, 0, -Math.sin(a) * r);
+      const g = new THREE.CylinderGeometry(.04, .05, h, 5).translate(0, h / 2, 0);
+      g.rotateZ(-lean); g.rotateY(a); g.translate(foot.x, 0, foot.z);
+      parts.push(paint(g, k % 2 ? 0x7a9a3a : 0x6a8a32, .1));
+      for (const f of [1, .8, .62]) {
+        const c = new THREE.Vector3(0, h * f, 0).applyAxisAngle(Z, -lean).applyAxisAngle(Y, a).add(foot);
+        const t = jitter(new THREE.IcosahedronGeometry(.32 * (1.2 - f * .4), 0), .1); t.scale(1.3, .45, 1.3); t.translate(c.x, c.y, c.z);
+        parts.push(paint(t, rnd() < .5 ? 0x6e9e44 : 0x62923e));
+      }
+    }
+    return solid(parts);
+  })();
+  const tualangs = [], rounds = [], palms = [], bananas = [], ferns = [], bamboos = [];
   const CABINS = [[-10.2, -6.4], [-13.2, -10.6], [-8.6, -12.8]];
   const nearBoard = (x, z) => Math.hypot(x - BOARD.x, z - BOARD.z) < 3.4
     || CABINS.some(([cx, cz]) => Math.hypot(x - cx, z - cz) < 3.6)
-    || (Math.abs(x - 5) < 7 && z < -26 && z > -40);                       // the cave's view across the valley
+    || (Math.abs(x - 5) < 7 && z < -14 && z > -40);                       // the cave's view across the valley (tall trees too)
   const okFor = (x, z) => lakeDist(x, z) > 1.7 && !nearBoard(x, z) && !(Math.abs(x) < 9 && z > -16 && z < 8);
   const tint = () => new THREE.Color(.88 + rnd() * .14, .9 + rnd() * .12, .86 + rnd() * .12);
-  for (const [x, z, s] of [[-6.2, 10.8, 1.6], [-4.4, 13.2, 1.3], [11.8, 12.4, 2.5]]) if (!nearBoard(x, z)) pines.push({ x, z, s });
+  // framing the foreground: a tualang and banana plants on the left, a big broadleaf on the right
+  for (const [list, x, z, s] of [[tualangs, -7.4, 11.2, .95], [bananas, -4.6, 13.6, 1.3], [bananas, -8.2, 13.2, 1.1], [rounds, 11.8, 12.4, 2]]) if (!nearBoard(x, z)) list.push({ x, z, s });
   for (let i = 0; i < 170; i++) {
     const x = (rnd() - .5) * 120, z = -48 + rnd() * 62;
     if (!okFor(x, z) || Math.hypot(x, z - 22) < 9) continue;
-    const back = z < -20;
-    if (rnd() < (back ? .85 : .62)) pines.push({ x, z, s: .7 + rnd() * .9 }); else rounds.push({ x, z, s: .7 + rnd() * .6 });
+    const r = rnd(), s = .7 + rnd() * .6;
+    if (z < -20) (r < .35 ? tualangs : r < .85 ? rounds : ferns).push({ x, z, s: r < .35 ? s * .9 : s });
+    else (r < .15 && z < -12 ? tualangs : r < .7 ? rounds : r < .85 ? palms : r < .93 ? bananas : ferns).push({ x, z, s });   // tualangs tower: keep them back
   }
   for (const [x, z] of [[-9.5, 8], [-12, 4], [-10.4, -2.4], [12.6, -2], [-14, -9], [3.4, 6.2]]) if (!nearBoard(x, z)) rounds.push({ x, z, s: 1 + rnd() * .4 });
-  instanced(pineGeo, vcMat(), pines.map((t) => ({ x: t.x, y: groundY(t.x, t.z) - .1, z: t.z, ry: rnd() * 6, s: t.s, tint: tint() })));
-  instanced(roundGeo, vcMat(), rounds.map((t) => ({ x: t.x, y: groundY(t.x, t.z) - .1, z: t.z, ry: rnd() * 6, s: t.s, tint: tint() })));
+  // coconut palms rising behind the cabins and on the far shore, banana plants beside the cabins
+  for (const [x, z] of [[-12.6, -14.6], [-16.2, -8.6], [-6.4, -16.2], [-2.6, -12.4]]) palms.push({ x, z, s: .95 + rnd() * .2 });
+  for (const [x, z] of [[-12.2, -8], [-6.6, -14.8], [-14.8, -12.6], [-12.4, -3.6]]) bananas.push({ x, z, s: .9 + rnd() * .3 });
+  for (const [x, z] of [[-6, -9.6], [2.6, -12.6]]) bamboos.push({ x, z, s: 1 });
+  const leafy = vcMat({ side: THREE.DoubleSide });
+  const plant = (geo, mat, list) => instanced(geo, mat, list.map((t) => ({ x: t.x, y: groundY(t.x, t.z) - .1, z: t.z, ry: rnd() * 6, s: t.s, tint: tint() })));
+  plant(tualangGeo, vcMat(), tualangs);
+  plant(roundGeo, vcMat(), rounds);
+  plant(palmGeo, leafy, palms);
+  plant(bananaGeo, leafy, bananas);
+  plant(fernGeo, leafy, ferns);
+  plant(bambooGeo, leafy, bamboos);
 
   // ============================================================ rocks and cliffs
   const rockGeo = paint(jitter(new THREE.IcosahedronGeometry(1, 0), .35), 0xc0c4c8);
@@ -282,16 +376,18 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
     scene.add(m);
   }
 
-  // ============================================================ the cave, high in the back cliff
-  // A tall crag of stacked slabs with a dark arched mouth, ragged rocks round its rim, and a faint warm glow
-  // deep inside (the firelit cave of theme 1), straight across the lake from the viewer.
+  // ============================================================ the cave, at the foot of the back cliff
+  // An old mine entrance set into a crag: chunky boulders heaped either side, a timber frame on stone plinths with
+  // stone blocks along its lintel, a brace inside, a plank walk out over a patch of sand, a broken fence, rubble, and
+  // a faint warm glow deep inside (the firelit cave of theme 1), straight across the lake from the viewer.
   const CAVE = new THREE.Vector3(5, 0, -41);
   CAVE.y = groundY(CAVE.x, CAVE.z);
   {
+    // the cliff it's cut into
     const slabs = [];
     for (let i = 0; i < 16; i++) {
-      const w = 3 + rnd() * 4, hh = 9 + rnd() * 6, d = 4 + rnd() * 3;
-      const x = CAVE.x + (rnd() - .5) * 17, z = CAVE.z - 3.6 - rnd() * 3;    // all behind the face, never through the mouth
+      const w = 3 + rnd() * 4, hh = 7 + rnd() * 5, d = 4 + rnd() * 3;
+      const x = CAVE.x + (rnd() - .5) * 17, z = CAVE.z - 3.6 - rnd() * 3;    // all behind the face
       const ry = (rnd() - .5) * .4;
       const g = new THREE.BoxGeometry(w, hh, d, 1, 2, 1);
       jitter(g, .6); g.rotateY(ry);
@@ -300,55 +396,110 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
       const cap = jitter(new THREE.BoxGeometry(w * .94, .5, d * .94, 2, 1, 2), .25); cap.rotateY(ry); cap.translate(x, CAVE.y + hh - .95, z);
       slabs.push(paint(cap, rnd() < .5 ? 0x5a8f40 : 0x638f45));
     }
-    // the face the mouth opens in: a broad slab, so the arch has rock all round it, grass along its brow
-    const face = new THREE.BoxGeometry(15, 13, 3, 3, 3, 1); jitter(face, .7); face.translate(CAVE.x, CAVE.y + 5.5, CAVE.z - .6);
+    const face = new THREE.BoxGeometry(14, 10, 3, 3, 3, 1); jitter(face, .7); face.translate(CAVE.x, CAVE.y + 4, CAVE.z - .6);
     slabs.push(paint(face, 0x81827f));
-    const brow = jitter(new THREE.BoxGeometry(14.6, .6, 2.8, 4, 1, 1), .3); brow.translate(CAVE.x, CAVE.y + 12.1, CAVE.z - .6);
+    const brow = jitter(new THREE.BoxGeometry(13.6, .6, 2.8, 4, 1, 1), .3); brow.translate(CAVE.x, CAVE.y + 9.1, CAVE.z - .6);
     slabs.push(paint(brow, 0x5e9042));
     const crag = new THREE.Mesh(solid(slabs), vcMat({ roughness: .85 }));
     crag.castShadow = crag.receiveShadow = true;
     scene.add(crag);
-    // the mouth: an arch of darkness, a little proud of the face so nothing shows through
-    const arch = new THREE.Shape();
-    arch.moveTo(-2.2, 0); arch.lineTo(-2.3, 2.4); arch.quadraticCurveTo(-2.1, 4.6, 0, 4.9); arch.quadraticCurveTo(2.1, 4.6, 2.3, 2.4); arch.lineTo(2.2, 0); arch.closePath();
-    const CS = 1.45;                                                       // the mouth's size
-    const mouth = new THREE.Mesh(new THREE.ShapeGeometry(arch, 8), new THREE.MeshBasicMaterial({ color: 0x0c0806 }));
-    mouth.position.set(CAVE.x, CAVE.y + .2, CAVE.z + 1.4); mouth.scale.setScalar(CS);
-    scene.add(mouth);
-    // the warm glow deep inside
+  }
+  {
+    // the entrance, built facing the viewer: x across, y up, z out toward the lake
+    const mine = new THREE.Group();
+    const yaw = Math.atan2(CAM.x - CAVE.x, CAM.z - CAVE.z);
+    mine.position.set(CAVE.x, CAVE.y, CAVE.z + 1.6); mine.rotation.y = yaw;
+    scene.add(mine);
+    const ground = (lx, lz) => landY(mine.position.x + lx * Math.cos(yaw) + lz * Math.sin(yaw), mine.position.z - lx * Math.sin(yaw) + lz * Math.cos(yaw)) - CAVE.y;
+    const OW = 2.6, OH = 2.8;                                                // the opening, 40% of the old arched mouth
+    const parts = [];
+    const block = (x, y, z, w, h, d, colour, rough = .16, rz = 0) => {
+      const g = jitter(new THREE.BoxGeometry(w, h, d), Math.min(w, h, d) * rough); g.rotateZ(rz); g.rotateY((rnd() - .5) * .3);
+      parts.push([g.translate(x, y, z), colour]);
+    };
+    const ROCK = [0x7b828c, 0x6e7580, 0x858c95];
+    const rock = () => ROCK[Math.floor(rnd() * 3)];
+    // boulders heaped up either side of the frame, tallest at the frame, falling away outward, and bridging over the top
+    for (const sx of [-1, 1]) {
+      for (const [x, y, z, w, h, d] of [[1.95, .9, -.1, 1.05, 1.8, 1.2], [2, 2.4, -.18, .95, 1.25, 1.1], [2.05, 3.3, -.35, .85, .75, 1],
+        [2.95, .7, -.2, 1.15, 1.35, 1.3], [2.95, 1.85, -.4, .9, 1, 1.1], [3.8, .45, 0, 1, .85, 1]]) {
+        block(sx * (x + (rnd() - .5) * .12), y, z, w, h, d, rock(), .16, sx * (rnd() - .5) * .12);
+      }
+    }
+    block(-.85, OH + 1.05, -.95, 1.5, .95, 1.2, rock()); block(.75, OH + 1.15, -1, 1.6, 1.05, 1.2, rock());
+    // the timber frame: posts on stone plinths, running up past a lintel that's capped with pale stone blocks
+    const WOOD = 0xa27a4e, WOOD_DARK = 0x84603c;
+    for (const sx of [-1, 1]) {
+      const x = sx * (OW / 2 + .12);
+      block(x, .45, 0, .46, .9, .46, 0x8c8f92, .1);
+      parts.push([new THREE.BoxGeometry(.24, OH + .55 - .9, .24).translate(x, .9 + (OH + .55 - .9) / 2, 0), WOOD]);
+      parts.push([new THREE.BoxGeometry(.34, .12, .34).translate(x, .96, 0), WOOD_DARK]);
+      parts.push([new THREE.BoxGeometry(.3, .1, .36).translate(x + sx * .02, OH + .02, .02), WOOD_DARK]);
+    }
+    parts.push([new THREE.BoxGeometry(OW + 1.1, .22, .26).translate(0, OH + .2, .14), WOOD]);
+    for (const [x, w, h] of [[-1.35, .9, .5], [-.45, .85, .58], [.42, .9, .52], [1.3, .85, .46]]) block(x, OH + .31 + h / 2, -.12, w, h, .55, [0xd6c8a8, 0xcbbd9b, 0xdccfb0][Math.floor(rnd() * 3)], .12);
+    parts.push([new THREE.BoxGeometry(.16, 2.9, .16).translate(0, 0, 0).rotateZ(.62).translate(-.05, OH * .5, -.22), WOOD_DARK]);   // a brace inside
+    // the plank walk out of the mine, over a patch of sand
+    for (let k = 0, z = .2; z < 3.5; k++, z += .3) {
+      if (k === 6) continue;                                                     // one plank gone
+      const w = 1.25 - (k === 9 ? .45 : 0), x = (k === 9 ? -.2 : 0) + (rnd() - .5) * .06;
+      const g = new THREE.BoxGeometry(w, .06, .26); g.rotateY((rnd() - .5) * .1); g.translate(x, ground(x, z) + .11, z);
+      parts.push([g, k % 2 ? WOOD : 0x947048]);
+    }
+    {
+      const g = new THREE.PlaneGeometry(1, 1, 10, 8); g.rotateX(-Math.PI / 2);
+      const p = g.attributes.position;
+      for (let i = 0; i < p.count; i++) {
+        let x = p.getX(i) * 7.6, z = p.getZ(i) * 5.4;
+        const e = Math.hypot(x / 3.8, z / 2.7);
+        if (e > 1) { x /= e; z /= e; }
+        x += (rnd() - .5) * .3; z += (rnd() - .5) * .3 + 1.5;
+        p.setXYZ(i, x, ground(x, z) + .07, z);
+      }
+      parts.push([g, 0xc6b05c, .16]);
+    }
+    // a broken fence on the right, a plank leant against the left
+    const fence = [[2.1, .9], [3.2, .7]];
+    for (const [x, z] of fence) parts.push([new THREE.BoxGeometry(.12, 1.05, .12).translate(x, ground(x, z) + .5, z), WOOD_DARK]);
+    const rail = (y, tilt) => { const g = new THREE.BoxGeometry(1.3, .08, .07); g.rotateZ(tilt); g.rotateY(.18); g.translate(2.65, ground(2.65, .8) + y, .86); parts.push([g, WOOD]); };
+    rail(.75, 0); rail(.42, -.22);
+    parts.push([new THREE.BoxGeometry(.1, 1.2, .07).rotateZ(.55).translate(2.65, ground(2.65, .8) + .55, .9), WOOD_DARK]);
+    parts.push([new THREE.BoxGeometry(.14, 1.6, .06).rotateZ(-.32).rotateX(-.12).translate(-1.75, ground(-1.75, .75) + .75, .75), WOOD]);
+    // rubble round the edge of the sand, clear of the walk
+    for (let i = 0; i < 16; i++) {
+      const a = rnd() * Math.PI, r = 1.6 + rnd() * 2.2, x = Math.cos(a) * r * 1.3, z = .4 + Math.sin(a) * r * .9;
+      if (Math.abs(x) < 1 && z < 3.8) continue;
+      const s = .1 + rnd() * .26;
+      parts.push([jitter(new THREE.IcosahedronGeometry(s, 0), s * .4).scale(1, .7, 1).translate(x, ground(x, z) + s * .4, z), rock()]);
+    }
+    const m = build(parts);
+    mine.add(m);
+    // the dark of the tunnel behind the frame, and the warm glow deep inside
+    const dark = new THREE.Mesh(new THREE.PlaneGeometry(OW + .3, OH + .5), new THREE.MeshBasicMaterial({ color: 0x0c0a09 }));
+    dark.position.set(0, (OH + .5) / 2, -.38); mine.add(dark);
     const gc = document.createElement('canvas'); gc.width = gc.height = 128;
     const gx = gc.getContext('2d');
-    const gr = gx.createRadialGradient(64, 92, 4, 64, 92, 64);
-    gr.addColorStop(0, 'rgba(255,170,80,.85)'); gr.addColorStop(.45, 'rgba(220,90,30,.35)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
+    const gr = gx.createRadialGradient(64, 88, 4, 64, 88, 64);
+    gr.addColorStop(0, 'rgba(255,170,80,.8)'); gr.addColorStop(.45, 'rgba(220,90,30,.3)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
     gx.fillStyle = gr; gx.fillRect(0, 0, 128, 128);
     const glowTex = new THREE.CanvasTexture(gc); glowTex.colorSpace = THREE.SRGBColorSpace;
-    const glow = new THREE.Mesh(new THREE.PlaneGeometry(3.6, 3.6), new THREE.MeshBasicMaterial({ map: glowTex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
-    glow.position.set(CAVE.x, CAVE.y + 1.6 * CS, CAVE.z + 1.45); glow.scale.setScalar(CS);
-    scene.add(glow);
-    // ragged rocks round the rim
-    const rim = [];
-    for (let i = 0; i <= 14; i++) {
-      const a = Math.PI * i / 14;
-      const g = jitter(new THREE.IcosahedronGeometry(.55 + rnd() * .35, 0), .25);
-      g.scale(CS, CS, CS);
-      g.translate(CAVE.x - Math.cos(a) * 2.45 * CS, CAVE.y + .2 + Math.sin(a) * 4.9 * CS * (i === 0 || i === 14 ? .2 : 1), CAVE.z + 1.6);
-      rim.push(paint(g, 0x6c7378));
-    }
-    const rimMesh = new THREE.Mesh(solid(rim), vcMat()); rimMesh.castShadow = true; scene.add(rimMesh);
+    const glow = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 2.2), new THREE.MeshBasicMaterial({ map: glowTex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+    glow.position.set(0, 1.1, -.35); mine.add(glow);
   }
 
-  // ============================================================ mountains: snow-capped peaks beyond the cliffs
-  // Two ranges of distinct pyramidal peaks, laid out in screen space so they always rise clear of the cliffs: a nearer,
-  // darker one with forest on its lower slopes, and a taller, paler, snowier one behind it. Sunlight and haze are
-  // baked into the facet colours (no fog), so the faces stay crisp but still read as far away.
+  // ============================================================ mountains: forested peaks beyond the cliffs
+  // Two ranges of distinct peaks, laid out in screen space so they always rise clear of the cliffs: a nearer, darker
+  // one and a taller, paler one behind it, both under rainforest with bare rock on the steepest faces and the highest
+  // tops (no snow: this is Malaysia). Sunlight and haze are baked into the facet colours (no fog), so the faces stay
+  // crisp but still read as far away.
   const SUN_DIR = new THREE.Vector3(-30, 45, 36).normalize();
   // where things land on screen from the home view: the world x for a screen x, the height for a screen y
   const solve = (f, want, lo, hi) => { for (let k = 0; k < 32; k++) { const m = (lo + hi) / 2; (f(m) < want ? lo = m : hi = m); } return lo; };
   const xAt = (nx, z) => solve((x) => proj(new THREE.Vector3(x, 20, z)).x, nx, -700, 700);
   const yAt = (x, z, ny) => solve((y) => proj(new THREE.Vector3(x, y, z)).y, ny, -50, 300);
   {
-    const HAZE = hex(0xb6d0e0), SNOW = hex(0xf6f8fa), SNOW_SHADE = hex(0xa6bbd0);
-    const range = ({ z, depth, peaks, ridge, snow, rock, forest, haze, sd }) => {
+    const HAZE = hex(0xb6d0e0);
+    const range = ({ z, depth, peaks, ridge, bare, rock, forest, haze, sd }) => {
       const span = (22 - z) * .74;                                          // world units per screen-width unit at this depth
       const P = peaks.map(([nx, ny, r]) => { const x = xAt(nx, z); return { x, h: yAt(x, z, ny), r: r * span }; });
       const W = 760, segX = 150, segZ = 26;
@@ -371,27 +522,22 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
       }
       const geo = g.toNonIndexed(); geo.computeVertexNormals();
       const q = geo.attributes.position, n = geo.attributes.normal, col = new Float32Array(q.count * 3), c = new THREE.Color();
-      const snowY = yAt(0, z, snow), treeY = yAt(0, z, ridge) * .7;
+      const bareY = yAt(0, z, bare);
       for (let f = 0; f < q.count; f += 3) {
         const x = (q.getX(f) + q.getX(f + 1) + q.getX(f + 2)) / 3, y = (q.getY(f) + q.getY(f + 1) + q.getY(f + 2)) / 3;
         const ny = n.getY(f), lit = Math.max(0, n.getX(f) * SUN_DIR.x + ny * SUN_DIR.y + n.getZ(f) * SUN_DIR.z);
         const wob = simplex.noise(x * .05, y * .1 + sd) * 3;
-        if (y > snowY + wob && ny > .3) c.copy(SNOW_SHADE).lerp(SNOW, Math.min(1, lit * 1.25));
-        else {
-          c.copy(forest && y < treeY + wob ? forest : rock[f % 2]);
-          c.multiplyScalar(.5 + .72 * lit);
-        }
-        c.lerp(HAZE, haze);
+        c.copy(ny < .5 || y > bareY + wob ? rock[f % 2] : forest[(f / 3) % 2]).multiplyScalar(.5 + .72 * lit).lerp(HAZE, haze);
         for (let k = 0; k < 3; k++) col.set([c.r, c.g, c.b], (f + k) * 3);
       }
       geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
       scene.add(new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ vertexColors: true, fog: false })));
     };
     // [screen x, screen y of the summit, width in screen widths]; the cliffs top out around .8 on screen
-    range({ z: -180, depth: 110, ridge: .7, snow: .8, haze: .42, sd: 7.3, rock: [hex(0x8e96a2), hex(0x868e9a)],
+    range({ z: -180, depth: 110, ridge: .7, bare: .93, haze: .42, sd: 7.3, rock: [hex(0x8a8f94), hex(0x82878c)], forest: [hex(0x3f6648), hex(0x47704e)],
       peaks: [[-2.3, .84, .5], [-1.8, .86, .5], [-1.3, .92, .45], [-.82, .87, .4], [-.4, .93, .42], [0, .86, .34], [.32, .99, .42], [.72, .9, .38],
         [1.1, .95, .42], [1.5, .85, .45], [1.95, .9, .5], [2.4, .84, .5]] });
-    range({ z: -112, depth: 70, ridge: .66, snow: .84, haze: .2, sd: 2.1, rock: [hex(0x6f7780), hex(0x68707a)], forest: hex(0x3d5a46),
+    range({ z: -112, depth: 70, ridge: .66, bare: .86, haze: .2, sd: 2.1, rock: [hex(0x6f7378), hex(0x686c70)], forest: [hex(0x355a3c), hex(0x3d6343)],
       peaks: [[-2.1, .8, .5], [-1.55, .83, .45], [-1.05, .86, .42], [-.6, .78, .34], [-.15, .84, .4], [.18, .78, .3], [.55, .87, .4],
         [.98, .8, .38], [1.4, .88, .46], [1.9, .8, .5], [2.35, .84, .5]] });
   }
@@ -550,30 +696,21 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
     add(new THREE.BoxGeometry(BW + .2, .12, .18), woodMat, 0, BASE + BH + .04, .02);
     add(new THREE.BoxGeometry(BW + .2, .12, .18), woodMat, 0, BASE - .04, .02);
     for (const x of [-BW / 2 - .02, BW / 2 + .02]) add(new THREE.BoxGeometry(.12, BH, .18), woodMat, x, BASE + BH / 2, .02);
-    // the gable: a triangle of boards under the roof, which the clock hangs on
-    const gableShape = new THREE.Shape([new THREE.Vector2(-BW / 2, 0), new THREE.Vector2(BW / 2, 0), new THREE.Vector2(0, .59)]);
+    // the gable: a triangle of boards under the roof
+    const gableShape = new THREE.Shape([new THREE.Vector2(-BW / 2, 0), new THREE.Vector2(BW / 2, 0), new THREE.Vector2(0, .8)]);
     add(new THREE.ExtrudeGeometry(gableShape, { depth: .1, bevelEnabled: false }).translate(0, 0, -.05), woodMat, 0, BASE + BH + .1, 0);
-    // the roof: two boards meeting at the ridge, overhanging front and back
-    const roofY = BASE + BH + .45;
-    add(new THREE.BoxGeometry(BW / 2 + .45, .08, .9), woodDark, -BW / 4 - .08, roofY, .1, .3);
-    add(new THREE.BoxGeometry(BW / 2 + .45, .08, .9), woodDark, BW / 4 + .08, roofY, .1, -.3);
+    // the roof: two boards meeting at the ridge, overhanging front and back, pitched up to make room for the clock
+    const roofY = BASE + BH + .61;
+    add(new THREE.BoxGeometry(BW / 2 + .45, .08, .9), woodDark, -.93, roofY, .1, .4);
+    add(new THREE.BoxGeometry(BW / 2 + .45, .08, .9), woodDark, .93, roofY, .1, -.4);
+    // a shelf on the frame for the clock
+    add(new THREE.BoxGeometry(1.05, .05, .5), woodMat, 0, BASE + BH + .125, .28);
   }
-  // the clock, set into the gable below the ridge (clear of the roof and the frame)
-  const clockHands = (() => {
-    const cv = document.createElement('canvas'); cv.width = cv.height = 256;
-    const x = cv.getContext('2d');
-    x.fillStyle = '#f4ead2'; x.beginPath(); x.arc(128, 128, 122, 0, 7); x.fill();
-    x.strokeStyle = '#4e321a'; x.lineWidth = 16; x.stroke();
-    x.fillStyle = '#2a1a0c';
-    for (let i = 0; i < 12; i++) { const a = i / 12 * Math.PI * 2; x.beginPath(); x.arc(128 + Math.sin(a) * 94, 128 - Math.cos(a) * 94, i % 3 ? 6 : 11, 0, 7); x.fill(); }
-    const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace;
-    const CY = BASE + BH + .37;
-    const face = new THREE.Mesh(new THREE.CircleGeometry(.21, 20), new THREE.MeshStandardMaterial({ map: t, roughness: .7, emissive: 0xffffff, emissiveMap: t, emissiveIntensity: .2 }));
-    face.position.set(0, CY, .07); board.add(face);
-    const ink = new THREE.MeshBasicMaterial({ color: 0x1a120a });
-    const hand = (len, w) => { const g = new THREE.BoxGeometry(w, len, .01); g.translate(0, len / 2, 0); const m = new THREE.Mesh(g, ink); m.position.set(0, CY, .08); board.add(m); return m; };
-    return { h: hand(.11, .03), m: hand(.17, .018) };
-  })();
+  // the flip clock from theme 1, on its shelf under the gable (clear of the roof): easier to read than hands
+  const clock = makeFlipClock();
+  clock.group.position.set(0, BASE + BH + .15, .3);
+  clock.group.scale.setScalar(1.25);
+  board.add(clock.group);
   // a lantern on a bracket by the left post, and a bell under the right eave: they come alive for a new question
   const lanternMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(.35, .25, .1), toneMapped: false });
   const lanternLight = new THREE.PointLight(0xffb060, 0, 6, 1.6);
@@ -588,7 +725,7 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
   }
   const bell = new THREE.Group();
   {
-    bell.position.set(BW / 2 - .45, BASE + BH + .28, .38);
+    bell.position.set(BW / 2 - .45, BASE + BH + .38, .38);
     const body = new THREE.Mesh(new THREE.CylinderGeometry(.06, .15, .2, 8, 1, true), new THREE.MeshStandardMaterial({ color: 0xc89838, metalness: .8, roughness: .3, side: THREE.DoubleSide, flatShading: true }));
     body.position.y = -.14; bell.add(body);
     const clap = new THREE.Mesh(new THREE.SphereGeometry(.035, 6, 4), woodDark); clap.position.y = -.24; bell.add(clap);
@@ -606,18 +743,47 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
     const x = cv.getContext('2d'); x.drawImage(q, 0, 0); x.globalCompositeOperation = 'source-in'; x.fillStyle = INK; x.fillRect(0, 0, cv.width, cv.height);
     return (inkQr = cv);
   }
-  // partner logos come from the TV with amber lettering; on paper, the amber turns to dark ink so it reads
-  const inkedLogos = new Map();
-  function inkLogo(logo) {
-    if (inkedLogos.has(logo)) return inkedLogos.get(logo);
-    const cv = document.createElement('canvas'); cv.width = logo.width; cv.height = logo.height;
-    const x = cv.getContext('2d'); x.drawImage(logo, 0, 0);
-    const img = x.getImageData(0, 0, cv.width, cv.height), d = img.data;
-    for (let i = 0; i < d.length; i += 4) if (d[i] > 180 && d[i + 1] > 110 && d[i + 2] < 110 && d[i] - d[i + 2] > 100) { d[i] = 20; d[i + 1] = 24; d[i + 2] = 36; }
-    x.putImageData(img, 0, 0);
-    inkedLogos.set(logo, cv);
-    return cv;
+  // Partner logos on paper: just each partner's icon, in its own colours, without the name. logo-strip.png holds each
+  // partner as an icon then a white wordmark; partners are cut apart the same way the TV does it (a wide transparent
+  // gap), then each is cropped to its coloured pixels, which leaves the white wordmark behind.
+  const partnerIcons = [];
+  {
+    const img = new Image();
+    img.onload = () => {
+      const w = img.width, h = img.height, c = document.createElement('canvas'); c.width = w; c.height = h;
+      const x = c.getContext('2d', { willReadFrequently: true }); x.drawImage(img, 0, 0);
+      const d = x.getImageData(0, 0, w, h).data;
+      const solid = (i, j) => d[(j * w + i) * 4 + 3] > 40;
+      const inked = (i, j) => { const k = (j * w + i) * 4, r = d[k], g = d[k + 1], b = d[k + 2]; return solid(i, j) && !(Math.min(r, g, b) > 170 && Math.max(r, g, b) - Math.min(r, g, b) < 30); };
+      const spans = [];
+      for (let i = 0, gap = Infinity; i < w; i++) {
+        let used = false; for (let j = 0; j < h && !used; j++) used = solid(i, j);
+        if (!used) { gap++; continue; }
+        if (gap >= 24 || !spans.length) spans.push([i, i + 1]); else spans[spans.length - 1][1] = i + 1;   // as tv-screen.js splits them
+        gap = 0;
+      }
+      for (const [a, b] of spans) {
+        let x0 = b, x1 = a, y0 = h, y1 = 0;
+        for (let j = 0; j < h; j++) for (let i = a; i < b; i++) if (inked(i, j)) { x0 = Math.min(x0, i); x1 = Math.max(x1, i + 1); y0 = Math.min(y0, j); y1 = Math.max(y1, j + 1); }
+        if (x1 <= x0) { partnerIcons.push(null); continue; }
+        const icon = document.createElement('canvas'); icon.width = x1 - x0; icon.height = y1 - y0;
+        icon.getContext('2d').drawImage(c, x0, y0, icon.width, icon.height, 0, 0, icon.width, icon.height);
+        // pixel art (a handful of flat colours) is scaled up crisp; anything anti-aliased is smoothed
+        const colours = new Set();
+        for (let j = y0; j < y1; j++) for (let i = x0; i < x1; i++) if (solid(i, j)) { const k = (j * w + i) * 4; colours.add((d[k] >> 4) << 8 | (d[k + 1] >> 4) << 4 | d[k + 2] >> 4); }
+        icon.pixelArt = colours.size < 24;
+        partnerIcons.push(icon);
+      }
+      drawNotes();
+    };
+    img.src = '/logo-strip.png';
   }
+  const drawIcon = (x, icon, cx, cy, maxW, maxH) => {
+    const s = Math.min(maxW / icon.width, maxH / icon.height), iw = icon.width * s, ih = icon.height * s;
+    x.imageSmoothingEnabled = !icon.pixelArt; x.imageSmoothingQuality = 'high';
+    x.drawImage(icon, cx - iw / 2, cy - ih / 2, iw, ih);
+    x.imageSmoothingEnabled = true;
+  };
   function wrap(x, text, maxW) {
     const lines = []; let line = '';
     for (const w of text.split(' ')) { const t = line ? `${line} ${w}` : w; if (x.measureText(t).width > maxW && line) { lines.push(line); line = w; } else line = t; }
@@ -650,8 +816,8 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
         x.strokeText(`— ${item.m.name}`, W / 2, 680); x.fillText(`— ${item.m.name}`, W / 2, 680);
       }
     } else if (item?.kind === 'partner') {
-      const raw = tvScreen.partners[item.i];
-      if (raw) { const logo = inkLogo(raw); const s = Math.min((W - 140) / logo.width, 480 / logo.height); x.drawImage(logo, (W - logo.width * s) / 2, (H - logo.height * s) / 2, logo.width * s, logo.height * s); }
+      const icon = partnerIcons[item.i];                       // the logo alone, as large as the sheet allows
+      if (icon) drawIcon(x, icon, W / 2, H / 2, W - 240, 540);
     }
     paperTex.needsUpdate = true;
   }
@@ -663,17 +829,32 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
   board.add(paper);
   const pinMat = new THREE.MeshStandardMaterial({ color: 0xc02424, roughness: .4 });
   add(new THREE.SphereGeometry(.055, 8, 6), pinMat, 0, PIN_Y - .06, SHEET_Z + .05);
+  // notes pinned in the margins either side of the sheet (never overlapping it), each with a partner's logo on it
+  const notes = [];
+  let notesShowing = null;
   {
-    // old notes in the margins either side of the sheet (never overlapping it)
     const note = (w, h, x, y, rot, colour) => {
-      const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshStandardMaterial({ color: colour, roughness: .9 }));
+      const cv = document.createElement('canvas'); cv.width = 256; cv.height = Math.round(256 * h / w);
+      const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 8;
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshStandardMaterial({ map: tex, roughness: .9, emissive: 0xffffff, emissiveMap: tex, emissiveIntensity: .3 }));
       m.position.set(x, y, .075); m.rotation.z = rot; board.add(m);
       add(new THREE.SphereGeometry(.04, 6, 4), pinMat, x, y + h / 2 - .08, .1);
+      notes.push({ cv, tex, colour: '#' + hex(colour).getHexString() });
     };
     const mx = (PW / 2 + BW / 2) / 2;                       // the middle of each margin
-    note(.38, .5, -mx, BASE + BH - .5, .08, 0xebe0c2);
-    note(.36, .3, -mx, BASE + .5, -.06, 0xf0e6ae);
-    note(.36, .46, mx, BASE + BH - .55, -.06, 0xe6ecf0);
+    note(.42, .5, -mx, BASE + BH - .5, .08, 0xf2ead4);       // the two big ones first: they get the logos
+    note(.42, .48, mx, BASE + BH - .55, -.06, 0xeef2f4);
+    note(.38, .32, -mx, BASE + .5, -.06, 0xf0e6ae);
+  }
+  function drawNotes() {
+    notesShowing = tvScreen.sponsors;                       // the admin's partners switch hides them here too
+    notes.forEach((n, i) => {
+      const x = n.cv.getContext('2d'), W = n.cv.width, H = n.cv.height;
+      x.fillStyle = n.colour; x.fillRect(0, 0, W, H);
+      const icon = notesShowing !== false && partnerIcons[i];
+      if (icon) drawIcon(x, icon, W / 2, H / 2 + 14, W - 56, H - 84);   // clear of the pin at the top
+      n.tex.needsUpdate = true;
+    });
   }
   const scrap = new THREE.Mesh(new THREE.ShapeGeometry(new THREE.Shape([new THREE.Vector2(-.14, 0), new THREE.Vector2(.16, 0), new THREE.Vector2(.04, -.17)])),
     new THREE.MeshStandardMaterial({ color: 0xf2ead6, roughness: .9, side: THREE.DoubleSide }));
@@ -701,7 +882,7 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
   const keyOf = (cur) => (cur ? `${cur.kind}|${cur.i ?? ''}|${cur.m?.id ?? ''}|${cur.m?.text ?? ''}` : 'none');
   function updatePaper(dt) {
     const cur = tvScreen.current;
-    const k = keyOf(cur) + (cur?.kind === 'qr' && getInkQr() ? '|q' : '');
+    const k = keyOf(cur) + (cur?.kind === 'qr' && getInkQr() ? '|q' : '') + (cur?.kind === 'partner' && partnerIcons[cur.i] ? '|i' : '');
     if (k !== shownKey) {
       const sameItem = shownKey && shownKey.split('|').slice(0, 3).join('|') === k.split('|').slice(0, 3).join('|');
       if (shownKey && shownKey !== 'none' && !sameItem) { ripOff(); pinIn = 0; }
@@ -988,10 +1169,8 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
         const flap = Math.sin(t * 7 + b.ph) * .5;
         b.l.rotation.z = flap; b.r.rotation.z = -flap;
       }
-      const now = new Date();
-      const mins = now.getHours() % 12 * 60 + now.getMinutes() + now.getSeconds() / 60;
-      clockHands.h.rotation.z = -mins / 720 * Math.PI * 2;
-      clockHands.m.rotation.z = -(mins % 60) / 60 * Math.PI * 2;
+      clock.update(dt);
+      if (tvScreen.sponsors !== notesShowing) drawNotes();
 
       // the logo bobs gently, as in theme 1
       logo.position.copy(LOGO_POS); logo.position.y += Math.sin(t * .6) * .12;
