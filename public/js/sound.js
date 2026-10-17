@@ -1,7 +1,7 @@
 // Sound for the backdrop, all synthesised with WebAudio (no audio files, so nothing to license).
 //   chime(kind, volume)   the new-question sound: 'marimba' | 'bowl' | 'dingdong' | 'none'
 //   setAmbience(volume)   the theme's background sound, 0 = off
-//   setAmbienceKind(kind) which one: 'fire' (crackling campfire, theme 1) | 'rain' (rainy city night, theme 2) | 'hum'
+//   setAmbienceKind(kind) which one: 'fire' (crackling campfire, theme 1) | 'city' (a busy crossing at night, theme 2) | 'rain' | 'hum'
 // Browsers only allow sound after a key press or click, so everything waits for unlock() (pressing F is enough).
 
 let ctx = null;
@@ -280,4 +280,64 @@ function makeRain() {
   };
 }
 
-const MAKERS = { fire: makeFire, hum: makeHum, rain: makeRain };
+// ------------------------------------------------------------------ city night (crowd + distant traffic)
+// A low city rumble, the murmur of a crowd (voice-band noise that swells and settles), now and then a car
+// passing far off, and very occasionally the soft two-tone of a crossing signal. Nothing sharp or sudden.
+function makeCity() {
+  const out = ctx.createGain();
+  out.gain.value = 0;
+  out.connect(master);
+  const len = ctx.sampleRate * 3;
+  const white = ctx.createBuffer(1, len, ctx.sampleRate), brown = ctx.createBuffer(1, len * 2, ctx.sampleRate);
+  { const w = white.getChannelData(0); for (let i = 0; i < w.length; i++) w[i] = Math.random() * 2 - 1;
+    const b = brown.getChannelData(0); let last = 0;
+    for (let i = 0; i < b.length; i++) { last = (last + .02 * (Math.random() * 2 - 1)) / 1.02; b[i] = last * 3.5; }
+    const n = ctx.sampleRate * .05; for (let i = 0; i < n; i++) { const k = i / n; b[i] *= k; b[b.length - 1 - i] *= k; } }
+  const loop = (buffer, type, freq, q, level) => {
+    const src = ctx.createBufferSource(); src.buffer = buffer; src.loop = true;
+    const f = ctx.createBiquadFilter(); f.type = type; f.frequency.value = freq; f.Q.value = q;
+    const g = ctx.createGain(); g.gain.value = level;
+    src.connect(f).connect(g).connect(out); src.start(0, Math.random() * buffer.duration);
+    return { f, g };
+  };
+  loop(brown, 'lowpass', 120, .6, .4);                        // the city's low rumble
+  // crowd murmur: two voice-band layers drifting in level, so it sounds like many conversations
+  const murmurs = [loop(white, 'bandpass', 420, 1.4, .05), loop(white, 'bandpass', 900, 1.8, .03)];
+  let timer = null, carTimer = null, chimeTimer = null;
+  const drift = () => {
+    const t = ctx.currentTime;
+    for (const m of murmurs) m.g.gain.setTargetAtTime(.025 + Math.random() * .04, t, 1.5);
+  };
+  const car = () => {
+    const t = ctx.currentTime + .1, dur = 3 + Math.random() * 2;
+    const src = ctx.createBufferSource(); src.buffer = white; src.loop = true;
+    const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.Q.value = .7;
+    f.frequency.setValueAtTime(400, t); f.frequency.linearRampToValueAtTime(800, t + dur / 2); f.frequency.linearRampToValueAtTime(350, t + dur);
+    const g = ctx.createGain(); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(.07, t + dur / 2); g.gain.linearRampToValueAtTime(0, t + dur);
+    const p = ctx.createStereoPanner(); const side = Math.random() < .5 ? -1 : 1;
+    p.pan.setValueAtTime(-.8 * side, t); p.pan.linearRampToValueAtTime(.8 * side, t + dur);
+    src.connect(f).connect(g).connect(p).connect(out); src.start(t); src.stop(t + dur + .1);
+    carTimer = setTimeout(car, 7000 + Math.random() * 12000);
+  };
+  // a crossing signal far off: two soft tones, repeated a few times, quiet
+  const chime = () => {
+    const t0 = ctx.currentTime + .1;
+    for (let k = 0; k < 4; k++) for (const [f, dt] of [[880, 0], [660, .22]]) {
+      const t = t0 + k * .6 + dt;
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = 'sine'; o.frequency.value = f;
+      g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(.018, t + .01); g.gain.exponentialRampToValueAtTime(.0001, t + .2);
+      o.connect(g).connect(out); o.start(t); o.stop(t + .25);
+    }
+    chimeTimer = setTimeout(chime, 30000 + Math.random() * 30000);
+  };
+  return {
+    setVolume(v) {
+      out.gain.setTargetAtTime(v * .9, ctx.currentTime, .4);
+      if (v > 0 && !timer) { timer = setInterval(drift, 2500); carTimer = setTimeout(car, 3000); chimeTimer = setTimeout(chime, 15000); }
+      if (v <= 0 && timer) { clearInterval(timer); clearTimeout(carTimer); clearTimeout(chimeTimer); timer = null; }
+    },
+  };
+}
+
+const MAKERS = { fire: makeFire, hum: makeHum, rain: makeRain, city: makeCity };
