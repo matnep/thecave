@@ -160,7 +160,7 @@ export function grainCanvas(size = 512) {
 }
 
 // The floating sign: "AI BUILDER SCHOOL" above the logo, on a transparent canvas.
-export function floatingLogo(img, lw) {
+export function floatingLogo(img, lw, ink = 'rgb(240,232,214)') {
   const art = logoPaint(img, lw);
   const pad = lw * .02;
   const W = Math.round(lw + pad * 2), H = Math.round(art.height + lw * .07 + pad * 2);
@@ -168,7 +168,7 @@ export function floatingLogo(img, lw) {
   p.textBaseline = 'alphabetic';
   p.letterSpacing = `${lw * .004}px`;
   p.font = `${lw * .052}px Anton`;
-  p.fillStyle = 'rgb(240,232,214)';
+  p.fillStyle = ink;
   p.fillText('AI BUILDER SCHOOL', pad, pad + lw * .045);
   p.drawImage(art, pad, pad + lw * .07);
   return c;

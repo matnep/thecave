@@ -6,15 +6,19 @@ import * as THREE from 'three';
 const CARD_W = .25, CARD_H = .24;
 const FLIP_SECS = .55;
 
-// one canvas texture per two-digit value, made when first needed
+// the colours: dark cards and window by default; a theme can pass its own (theme 2 matches its wooden notice board)
+const DARK = { card: '#211d1a', split: '#0b0908', window: 0x1a1512 };
+
+// one canvas texture per two-digit value and card colour, made when first needed
 const cardCache = new Map();
-function cardTexture(text) {
-  if (cardCache.has(text)) return cardCache.get(text);
+function cardTexture(text, look = DARK) {
+  const key = `${look.card}|${text}`;
+  if (cardCache.has(key)) return cardCache.get(key);
   const c = document.createElement('canvas');
   c.width = 256; c.height = 248;
   const x = c.getContext('2d');
   const r = 26;
-  x.fillStyle = '#211d1a';
+  x.fillStyle = look.card;
   x.beginPath(); x.roundRect(0, 0, 256, 248, r); x.fill();
   // a slight sheen on the top half, shade on the bottom, like a real plastic card
   const g = x.createLinearGradient(0, 0, 0, 248);
@@ -25,12 +29,12 @@ function cardTexture(text) {
   x.textAlign = 'center'; x.textBaseline = 'middle';
   x.fillText(text, 128, 132);
   // the split between the two halves
-  x.fillStyle = '#0b0908';
+  x.fillStyle = look.split;
   x.fillRect(0, 122, 256, 5);
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
   t.anisotropy = 8;
-  cardCache.set(text, t);
+  cardCache.set(key, t);
   return t;
 }
 
@@ -51,7 +55,7 @@ function halfGeo(top, back = false) {
 
 const cardMat = (map) => new THREE.MeshStandardMaterial({ map, emissiveMap: map, emissive: 0xffffff, emissiveIntensity: .35, roughness: .55 });
 
-function makeCard() {
+function makeCard(look) {
   const g = new THREE.Group();
   const top = new THREE.Mesh(halfGeo(true), cardMat(null));
   const bottom = new THREE.Mesh(halfGeo(false), cardMat(null));
@@ -70,7 +74,7 @@ function makeCard() {
       if (text === value) return;
       const old = value === null ? text : value;
       value = text;
-      const a = cardTexture(old), b = cardTexture(text);
+      const a = cardTexture(old, look), b = cardTexture(text, look);
       set(top, b); set(bottom, a); set(flapFront, a); set(flapBack, b);
       age = old === text ? 9 : 0;
       flap.visible = age === 0;
@@ -88,10 +92,11 @@ function makeCard() {
   };
 }
 
-export function makeFlipClock() {
+export function makeFlipClock(colours = {}) {
+  const look = { ...DARK, ...colours };
   const group = new THREE.Group();
   const shell = new THREE.MeshStandardMaterial({ color: 0xe0782c, roughness: .45, metalness: .05, flatShading: true });
-  const dark = new THREE.MeshStandardMaterial({ color: 0x1a1512, roughness: .7, flatShading: true });
+  const dark = new THREE.MeshStandardMaterial({ color: look.window, roughness: .7, flatShading: true });
   const chrome = new THREE.MeshStandardMaterial({ color: 0xcfc6b8, roughness: .3, metalness: .8, flatShading: true });
 
   // the case: a chunky rounded block, slightly wider at the base, standing on two little feet
@@ -117,7 +122,7 @@ export function makeFlipClock() {
   knob.rotation.z = Math.PI / 2; knob.position.set(.355, .26, -.02);
   group.add(knob);
 
-  const hours = makeCard(), minutes = makeCard();
+  const hours = makeCard(look), minutes = makeCard(look);
   hours.group.position.set(-.135, .24, .2);
   minutes.group.position.set(.135, .24, .2);
   group.add(hours.group, minutes.group);
