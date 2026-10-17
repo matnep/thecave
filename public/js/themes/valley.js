@@ -6,8 +6,8 @@
 // The logo floats in the sky, and the notice board stands where theme 1's TV is: both are solved at load so they
 // land on the same spot and size on screen as in theme 1.
 // The questions go up on the notice board: one pinned sheet at a time (QR code, a question, or a partner's logo).
-// When the slideshow moves on, the sheet tears off its pin and slides smoothly down and out through the bottom of the
-// frame, and a fresh one is pinned up. Partner icons sit on the notes in the margins. A bell swings and
+// When the slideshow moves on, the sheet tears off its pin and falls like paper, swinging and rippling, down and out
+// through the bottom of the frame, and a fresh one is pinned up. Partner icons sit on the notes in the margins. A bell swings and
 // a lantern glows for a new question; theme 1's flip clock, in the board's wood, stands under the gable. Birds circle,
 // clouds drift, chimney smoke billows (but never behind the logo). Nothing flashes.
 import * as THREE from 'three';
@@ -944,9 +944,10 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
     });
   }
   // ---- ripping. The old sheet is copied into a flyer that tears off its pin: the paper gives round the pin (a ragged
-  // corner stays behind, scraps fly) and it slides straight out from the board, then on down to the bottom middle of the
-  // frame and out of view, like a slide in a deck: the same size all the way, upright and flat (no flips, no flapping),
-  // drawn over the scene so it never cuts into a bush or the ground.
+  // corner stays behind, scraps fly), it comes out from the board, and it falls like paper does, toward the bottom middle
+  // of the frame and out of view: swinging from side to side as it catches the air, rocking with each swing, its paper
+  // rippling, but never turning over. It keeps its distance from us (so its size), and it's drawn over the scene so it
+  // never cuts into a bush or the ground.
   const tornMat = new THREE.MeshStandardMaterial({ color: 0xf2ead6, roughness: .9, side: THREE.DoubleSide });
   const scrap = new THREE.Mesh(new THREE.BufferGeometry(), tornMat);                // the corner left on the pin
   scrap.position.set(0, PIN_Y + .005, SHEET_Z - .005); scrap.visible = false; board.add(scrap);
@@ -984,7 +985,8 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
   }
   const flyers = [];
   const boardDir = (x, y, z) => new THREE.Vector3(x, y, z).applyQuaternion(board.quaternion).multiplyScalar(boardAt.s);
-  const SLIDE = 1.5;                                                                // the slide out takes this long
+  const FALL = 2.3;                                                                 // the fall out of the frame takes this long
+  const rock = new THREE.Quaternion(), rockAngles = new THREE.Euler();
   const PX = paperCanvas.width / PW;                                                // canvas pixels per sheet unit
   function ripOff() {
     const tear = tearShape();
@@ -1005,7 +1007,8 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
     board.updateMatrixWorld(true);
     paper.getWorldPosition(m.position); paper.getWorldQuaternion(m.quaternion); m.scale.setScalar(boardAt.s);
     scene.add(m);
-    flyers.push({ m, age: 0, start: m.position.clone(), fwd: new THREE.Vector3(0, 0, 1).applyQuaternion(m.quaternion) });
+    flyers.push({ m, age: 0, start: m.position.clone(), fwd: new THREE.Vector3(0, 0, 1).applyQuaternion(m.quaternion),
+      rest: Float32Array.from(geo.attributes.position.array), seed: rnd() * 10 });
   }
   let pinIn = 1, shownKey = null;
   const keyOf = (cur) => (cur ? `${cur.kind}|${cur.i ?? ''}|${cur.m?.id ?? ''}|${cur.m?.text ?? ''}` : 'none');
@@ -1034,23 +1037,38 @@ export async function create({ renderer, tvScreen, screenTex, logoImg }) {
         f.m.position.copy(f.start).addScaledVector(f.fwd, k * .84 * boardAt.s);
       } else {
         if (!f.free) {
-          // from here it's drawn over the scene, sliding at the same distance from us (so the same size) to where its top
-          // edge sits just below the middle of the frame's bottom edge
-          f.free = true; f.t0 = f.age; f.p0 = f.m.position.clone();
+          // from here it's drawn over the scene, falling at the same distance from us (so the same size) to where all of it
+          // is just below the middle of the frame's bottom edge
+          f.free = true; f.t0 = f.age; f.p0 = f.m.position.clone(); f.q0 = f.m.quaternion.clone();
           f.m.material.depthTest = false; f.m.renderOrder = 10;
+          f.side = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
           const ahead = camera.getWorldDirection(new THREE.Vector3()), depth = f.p0.clone().sub(camera.position).dot(ahead);
           const top = [-PW / 2, 0, PW / 2].map((x) => new THREE.Vector3(x, 0, 0).multiplyScalar(boardAt.s).applyQuaternion(f.m.quaternion));
-          for (let y = -1.04; y > -2; y -= .02) {                                  // low enough that its top corners are out too
-            const ray = new THREE.Vector3(0, y, .5).unproject(camera).sub(camera.position).normalize();
+          for (let y = -1.04; y > -2.5; y -= .02) {                                // low enough that its top corners are out too,
+            const ray = new THREE.Vector3(0, y, .5).unproject(camera).sub(camera.position).normalize();   // however it rocks
             f.p1 = camera.position.clone().addScaledVector(ray, depth / ray.dot(ahead));
-            if (top.every((c) => c.clone().add(f.p1).project(camera).y < -1.02)) break;
+            if (top.every((c) => c.clone().add(f.p1).project(camera).y < -1.14)) break;
           }
         }
-        const u = Math.min(1, (f.age - f.t0) / SLIDE);
-        f.m.position.lerpVectors(f.p0, f.p1, 1 - Math.cos(u * Math.PI / 2));        // easing off, gathering speed out
+        // Falling like paper: dropping faster and faster, swinging from side to side as it catches the air (buoyed up a
+        // little at the end of each swing), rocking into each swing. The swings ease off as it speeds up.
+        const t = f.age - f.t0, u = Math.min(1, t / FALL), swing = Math.sin(t * 5 + f.seed), calm = 1 - .55 * u;
+        f.m.position.lerpVectors(f.p0, f.p1, Math.pow(u, 1.7))
+          .addScaledVector(f.side, swing * .55 * boardAt.s * calm);
+        f.m.position.y += Math.abs(swing) * .22 * boardAt.s * (1 - u);
+        rockAngles.set(Math.cos(t * 5 + f.seed) * .16 * calm, 0, -Math.cos(t * 5 + f.seed) * .24 * calm);
+        f.m.quaternion.copy(f.q0).multiply(rock.setFromEuler(rockAngles));
         f.done = u >= 1;
       }
-      // gone once it's slid out below the frame (no fading)
+      // its paper ripples as it falls (and bulges out a little while it's still coming off the board)
+      const p = f.m.geometry.attributes.position, amp = f.free ? .12 : .05;
+      for (let j = 0; j < p.count; j++) {
+        const x = f.rest[j * 3], y = f.rest[j * 3 + 1];
+        const z = Math.sin(x * 2.4 + f.age * 9 + f.seed) * amp * (1 + y / PH * .3) + Math.sin(y * 2.6 + f.age * 6) * amp * .6 * (-y / PH);
+        p.setZ(j, f.free ? z : Math.abs(z));
+      }
+      p.needsUpdate = true;
+      // gone once it's fallen out below the frame (no fading)
       if (f.done || f.age > 8) { scene.remove(f.m); f.m.geometry.dispose(); f.m.material.map.dispose(); f.m.material.dispose(); flyers.splice(i, 1); }
     }
   }
