@@ -19,6 +19,7 @@
     "@fontsource/vt323": "^5.3.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "delaunator": "^5.1.0",
     "lucide-react": "^1.57.0",
     "qrcode": "^1.5.4",
     "radix-ui": "^1.8.1",

@@ -53,7 +53,7 @@ The last theme used is remembered; `/?theme=1` forces one.
 | Key | Theme | File |
 |---|---|---|
 | 1 | Firelit cave: campfire, floating logo, water channel, a lost duckling that is always paddling about; a duck family, a pirate ship and jumping fish take turns appearing. Ducks steer round the rocks and fish only jump over open water (`clearance.js` maps where the rocks are) | `public/js/themes/firelit-cave.js` (+ `cave-life.js`, `clearance.js`) |
-| 2 | Neon city: a low-poly recreation of a night photo of a Tokyo scramble crossing, built in depth layers. Up close: utility poles and power cables, street lamps with pools of light, vending machines, guard rails, a zebra scramble and puddles. Mid-way: a tall building with a huge warm billboard and signs sticking out from its walls (left), lit towers packed with signs including a neon clock billboard (centre), a big building whose cyan LED screen shows the questions, QR and partner logos, with a "QUE" neon sign above it that lights up for a new question and an LED ticker below (right). Far off: haze bands, two skylines, lit clouds. Logo and presenter in the sky gap, as in theme 1. Background sound: a crowd murmur and distant city | `public/js/themes/neon-city.js` |
+| 2 | Neon city: a low-poly version of a night photo (`public/scenes/city-night.webp`). The photo is triangulated in the browser (finer where it has detail), split into depth layers that slide against each other as the camera drifts, and its bright signs bloom. Below the horizon a 3D wet plaza reflects the photo. Fitted onto the photo: the live question screen over its big screen, a "QUE" neon sign that lights up for a new question, a clock in place of a brand sign, our own signs over the real brands, and the logo and presenter in the sky gap. To change the photo, replace the image and update the `PHOTO_*` coordinates in the theme | `public/js/themes/neon-city.js` |
 
 To add a theme: copy `firelit-cave.js`, change it, and register it in the `THEMES` list at the top of `public/js/main.js`.
 
@@ -78,4 +78,5 @@ If frames still drop it steps down automatically: lower resolution, then no shad
 
 ## Credits
 - Duck: "Mallard duck" by Poly by Google, [CC-BY 3.0](https://creativecommons.org/licenses/by/3.0/), via [Poly Pizza](https://poly.pizza/m/frSLi6b6Vid) (`public/models/mallard.glb`; ducklings use the same model in plain yellow)
+- Theme 2 photo (`public/scenes/city-night.webp`): supplied as a reference; confirm you have the rights to use it before showing it publicly, or replace it with your own photo
 - Fish: "Clownfish" by [Quaternius](https://quaternius.com), CC0, via [Poly Pizza](https://poly.pizza/m/769fHo3eEB) (`public/models/clownfish.glb`; recoloured to the cave palette)
