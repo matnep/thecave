@@ -42,8 +42,6 @@ addEventListener('keydown', unlockAudio);
 addEventListener('pointerdown', unlockAudio);
 const applyAmbience = () => sound.setAmbience(ambience.muted ? 0 : ambience.volume);
 const playChime = () => { if (!soundCfg.muted) sound.chime(soundCfg.chime, soundCfg.volume); };
-// little sound effects a theme can play, at the question sound's volume (and muted with it)
-const sfx = { tear: () => { if (!soundCfg.muted) sound.tear(soundCfg.volume); } };
 tvScreen.onQuestion = () => { playChime(); theme?.onQuestion?.(); };
 const screenTex = new THREE.CanvasTexture(tvScreen.canvas);
 screenTex.colorSpace = THREE.SRGBColorSpace;
@@ -69,7 +67,7 @@ async function loadTheme(n) {
   if (theme) { fade.classList.add('on'); await sleep(850); }
   try {
     const mod = await THEMES[n]();
-    const next = await mod.create({ renderer, tvScreen, screenTex, logoImg, sfx });
+    const next = await mod.create({ renderer, tvScreen, screenTex, logoImg });
     sound.setAmbienceKind(mod.ambience || 'fire');     // each theme brings its own background sound
     theme?.dispose();
     theme = next; themeNum = n;

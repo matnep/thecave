@@ -6,8 +6,8 @@
 // The logo floats in the sky, and the notice board stands where theme 1's TV is: both are solved at load so they
 // land on the same spot and size on screen as in theme 1.
 // The questions go up on the notice board: one pinned sheet at a time (QR code, a question, or a partner's logo).
-// When the slideshow moves on, the sheet tears off its pin, flutters down, and is carried off by the breeze into the
-// middle of the valley, and a fresh one is pinned up. Partner icons sit on the notes in the margins. A bell swings and
+// When the slideshow moves on, the sheet tears off its pin and the breeze carries it down and away, gliding low over
+// the grass and out through the bottom of the frame, and a fresh one is pinned up. Partner icons sit on the notes in the margins. A bell swings and
 // a lantern glows for a new question; theme 1's flip clock, in the board's wood, stands under the gable. Birds circle,
 // clouds drift, chimney smoke billows (but never behind the logo). Nothing flashes.
 import * as THREE from 'three';
@@ -31,7 +31,7 @@ const INK = '#141824';                     // near-black ink on cream paper: ~16
 // where theme 1 puts things on a 16:9 screen (measured from theme 1, in NDC: -1..1 across and up)
 const THEME1 = { screen: { cx: .552, cy: -.271, h: .429 }, logo: { cx: -.232, cy: .507, w: .496 } };
 
-export async function create({ renderer, tvScreen, screenTex, logoImg, sfx }) {
+export async function create({ renderer, tvScreen, screenTex, logoImg }) {
   const SKY = 0xb2d2e2;
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -96,6 +96,7 @@ export async function create({ renderer, tvScreen, screenTex, logoImg, sfx }) {
   const BW = 3.5, BH = 2.5, BASE = 1.0;                  // board size, and how high it stands off the ground
   const PW = 2.4, PH = 1.8;                               // the pinned sheet (4:3, like the TV screen)
   const PIN_Y = BASE + BH - .22;
+  const SHEET_Z = .1;                                         // in front of the board face (.06) and the old notes (.075)
   const SHEET_Y = PIN_Y - PH / 2;                         // the sheet's centre, up from the board's foot
   const boardAt = (() => {
     const T = THEME1.screen;
@@ -352,6 +353,24 @@ export async function create({ renderer, tvScreen, screenTex, logoImg, sfx }) {
   const boxPts = (x0, x1, z0, z1, y0, y1) => [x0, x1].flatMap((x) => [z0, z1].flatMap((z) => [y0, y1].map((y) => new THREE.Vector3(x, y, z))));
   const fromCam = (x, z) => Math.hypot(x - CAM.x, z - CAM.z);
   const bw = (BW / 2 + .3) * boardAt.s;
+  // A torn sheet's way out of the frame, a smooth curve: from where it tears free in front of the board, down and to the
+  // left, then gliding low over the grass to well below the middle of the frame's bottom edge (all of it out of view by
+  // then). Its lane is clear grass: no trees, no bushes.
+  const BOARD_YAW = Math.atan2(CAM.x - BOARD.x, CAM.z - BOARD.z);
+  const onBoard = (x, y, z) => new THREE.Vector3(x, y, z).multiplyScalar(boardAt.s).applyAxisAngle(new THREE.Vector3(0, 1, 0), BOARD_YAW).add(BOARD);
+  const SWEEP_MID = onBoard(-2.6, PIN_Y - 1, SHEET_Z + 1.6);
+  SWEEP_MID.y = Math.max(SWEEP_MID.y, landY(SWEEP_MID.x, SWEEP_MID.z) + 1.9 * boardAt.s);
+  const EXIT = (() => {
+    const d = new THREE.Vector3(0, -2.2, .5).unproject(solveCam).sub(solveCam.position).normalize();
+    for (let t = 2; t < 30; t += .1) { const q = solveCam.position.clone().addScaledVector(d, t); if (q.y - landY(q.x, q.z) < .6) return q; }
+    return solveCam.position.clone().addScaledVector(d, 6);
+  })();
+  const sweepAt = (p0, e) => { const a = p0.clone().lerp(SWEEP_MID, e); return a.lerp(SWEEP_MID.clone().lerp(EXIT, e), e); };
+  // the lane covers its leading (top) edge along the curve and the rest of it trailing behind, as it glides flat
+  const SHEET_FREE = onBoard(0, PIN_Y, SHEET_Z + .84), TRAILS = EXIT.clone().sub(SHEET_FREE).setY(0).normalize();
+  const LANE = Array.from({ length: 31 }, (_, i) => sweepAt(SHEET_FREE, i / 30))
+    .flatMap((q) => [0, .6, 1.2, 1.8].map((k) => q.clone().addScaledVector(TRAILS, -k * boardAt.s)));
+  const inFlight = (x, z, r) => LANE.some((q) => Math.hypot(x - q.x, z - q.z) < r);
   const KEEP = [
     ...CABINS.map(([x, z]) => ({ r: rectOf(boxPts(x - 2, x + 2, z - 2, z + 2, groundY(x, z), groundY(x, z) + 3.8)), d: fromCam(x, z) - 2 })),
     { r: rectOf(boxPts(CAVE.x - 4, CAVE.x + 4, CAVE.z + 1, CAVE.z + 5, CAVE.y, CAVE.y + 4.4)), d: fromCam(CAVE.x, CAVE.z + 5) },
@@ -373,7 +392,7 @@ export async function create({ renderer, tvScreen, screenTex, logoImg, sfx }) {
   const kindAt = (x, z) => .5 + .5 * simplex.noise(x * .02 - 5, z * .02 + 3) + (rnd() - .5) * .25;
   for (let gx = -60; gx <= 60; gx += 2.3) for (let gz = -48; gz <= 16; gz += 2.3) {
     const x = gx + (rnd() - .5) * 1.6, z = gz + (rnd() - .5) * 1.6, d = grove(x, z);
-    if (rnd() > smooth(.3, .5, d) || !okFor(x, z) || inRock(x, z) || Math.hypot(x, z - 22) < 6.5) continue;
+    if (rnd() > smooth(.3, .5, d) || !okFor(x, z) || inRock(x, z) || Math.hypot(x, z - 22) < 6.5 || inFlight(x, z, 3)) continue;
     const s = .7 + smooth(.55, .9, d) * .55 + rnd() * .15, k = kindAt(x, z), back = z < -20;
     if (back && rnd() < .12) ferns.push({ x, z, s: s * .9 });                   // tree ferns in the shade at the back
     else if (k < (back ? .38 : z < -12 ? .22 : -1)) tualangs.push({ x, z, s: s * .85 });   // tualangs tower: keep them back
@@ -603,12 +622,15 @@ export async function create({ renderer, tvScreen, screenTex, logoImg, sfx }) {
     // bushes: thick along the groves' edges and under them, scattered through the open, now and then a hibiscus in
     // flower; off the path and the shore, clear of the board, the cabins, the jetty and the cave's patch of sand
     const along = path.getSpacedPoints(40), bushes = [], blooms = [];
-    for (let gx = -46; gx <= 46; gx += 1.6) for (let gz = -40; gz <= 17; gz += 1.6) {
-      const x = gx + (rnd() - .5) * 1.4, z = gz + (rnd() - .5) * 1.4, d = grove(x, z);
-      if (rnd() > .18 + smooth(.22, .48, d) * .72) continue;
+    const spots = [];
+    for (let gx = -46; gx <= 46; gx += 1.6) for (let gz = -40; gz <= 17; gz += 1.6) spots.push([gx, gz, 1.4, .18]);
+    for (let gx = -30; gx <= 30; gx += 1.5) for (let gz = 5; gz <= 17; gz += 1.5) spots.push([gx + .75, gz + .75, 1.2, .3]);   // a second, thicker layer in front
+    for (const [gx, gz, jit, base] of spots) {
+      const x = gx + (rnd() - .5) * jit, z = gz + (rnd() - .5) * jit, d = grove(x, z);
+      if (rnd() > base + smooth(.22, .48, d) * .72 + smooth(4, 10, z) * .45) continue;   // thicker in the foreground
       if (lakeDist(x, z) < 1.25 || Math.hypot(x - BOARD.x, z - BOARD.z) < 2.6 || CABINS.some(([cx, cz]) => Math.hypot(x - cx, z - cz) < 2.5)
         || (Math.abs(x - CAVE.x) < 4.5 && z > CAVE.z - 1 && z < CAVE.z + 6.5) || (x > JETTY.x0 - .8 && x < JETTY.x1 + .6 && z > JETTY.z - 1.4 && z < JETTY.z + 2.6)
-        || inRock(x, z) || along.some((p) => Math.hypot(x - p.x, z - p.z) < 1.1) || nearTrail(x, z, 1.2)) continue;
+        || inRock(x, z) || along.some((p) => Math.hypot(x - p.x, z - p.z) < 1.1) || nearTrail(x, z, 1.2) || inFlight(x, z, 2.4)) continue;
       (rnd() < .05 && z < 2 ? blooms : bushes).push({ x, z, s: .6 + rnd() * .45 + smooth(.4, .8, d) * .4 });   // flowers out in the valley, small
     }
     plant(bushGeo, vcMat(), bushes, .8, .7);
@@ -805,7 +827,6 @@ export async function create({ renderer, tvScreen, screenTex, logoImg, sfx }) {
   }
 
   // ---- the sheet: drawn from whatever the TV is showing (the QR, a question, or a partner's logo)
-  const SHEET_Z = .1;                                         // in front of the board face (.06) and the old notes (.075)
   const paperCanvas = document.createElement('canvas'); paperCanvas.width = 1024; paperCanvas.height = 768;
   const paperTex = new THREE.CanvasTexture(paperCanvas); paperTex.colorSpace = THREE.SRGBColorSpace; paperTex.anisotropy = 8;
   let inkQr = null;
@@ -941,10 +962,10 @@ export async function create({ renderer, tvScreen, screenTex, logoImg, sfx }) {
     });
   }
   // ---- ripping. The old sheet is copied into a flyer that tears off its pin: it peels away from the bottom, the paper
-  // gives round the pin (a ragged corner stays behind, scraps fly, a papery rip), and it drops, fluttering down and to the
-  // left (the way the smoke drifts) like a falling leaf. Then the breeze takes it: sideways till it's clear of the board,
-  // then low over the slope and the lake into the middle of the valley, smaller and smaller till it's gone. Always out
-  // in front of the board, never through it, never into the ground.
+  // gives round the pin (a ragged corner stays behind, scraps fly), and is yanked out toward us;
+  // then the breeze takes it along a smooth curve, down and to the left, tipping over into a flat glide low over the
+  // grass, out through the bottom middle of the frame, faster as it goes. Its lane through the bushes is clear. Always
+  // out in front of the board, never through it, never into the ground or the bushes.
   const tornMat = new THREE.MeshStandardMaterial({ color: 0xf2ead6, roughness: .9, side: THREE.DoubleSide });
   const scrap = new THREE.Mesh(new THREE.BufferGeometry(), tornMat);                // the corner left on the pin
   scrap.position.set(0, PIN_Y + .005, SHEET_Z - .005); scrap.visible = false; board.add(scrap);
@@ -982,11 +1003,9 @@ export async function create({ renderer, tvScreen, screenTex, logoImg, sfx }) {
   }
   const flyers = [];
   const boardDir = (x, y, z) => new THREE.Vector3(x, y, z).applyQuaternion(board.quaternion).multiplyScalar(boardAt.s);
-  const fall = boardDir(-2.4, -2.6, 0), sway = boardDir(1, 0, 0), DRAG = 1.4;
+  const sway = boardDir(1, 0, 0), SWEEP = 2.4;                                      // the sweep out takes this long
   const toBoard = new THREE.Matrix4(), sheetV = new THREE.Vector3(), sheetW = new THREE.Vector3();
-  // where the breeze carries it: out over the lake, in the middle of the frame from the home view (a touch low and right,
-  // well clear of the logo and the presenter's name)
-  const GLIDE_TO = (() => { const d = new THREE.Vector3(.1, -.06, .5).unproject(solveCam).sub(solveCam.position).normalize(); return solveCam.position.clone().addScaledVector(d, 34); })();
+  const FLOOR = .08;                                                                // how high it skims the grass, at least
   const PX = paperCanvas.width / PW;                                                // canvas pixels per sheet unit
   function ripOff() {
     const tear = tearShape();
@@ -1007,10 +1026,9 @@ export async function create({ renderer, tvScreen, screenTex, logoImg, sfx }) {
     board.updateMatrixWorld(true);
     paper.getWorldPosition(m.position); paper.getWorldQuaternion(m.quaternion); m.scale.setScalar(boardAt.s);
     scene.add(m);
-    flyers.push({ m, age: 0, rest: Float32Array.from(geo.attributes.position.array), vel: new THREE.Vector3(),
+    flyers.push({ m, age: 0, rest: Float32Array.from(geo.attributes.position.array),
       spin: new THREE.Vector3((rnd() - .5) * 2, (rnd() - .5) * 3, (rnd() - .5) * 2.5), seed: rnd() * 10,
       fwd: new THREE.Vector3(0, 0, 1).applyQuaternion(m.quaternion) });
-    sfx?.tear?.();
   }
   let pinIn = 1, shownKey = null;
   const keyOf = (cur) => (cur ? `${cur.kind}|${cur.i ?? ''}|${cur.m?.id ?? ''}|${cur.m?.text ?? ''}` : 'none');
@@ -1041,44 +1059,30 @@ export async function create({ renderer, tvScreen, screenTex, logoImg, sfx }) {
         f.m.position.addScaledVector(f.fwd, dt * 3.8 * boardAt.s);
         f.m.rotateX(-dt * 1.2); f.m.rotateZ(-dt * .8);
       } else {
-        if (!f.free) { f.free = true; f.vel.copy(boardDir(-1.3, -.5, .25)); }
-        const glide = f.landed !== undefined ? f.age > f.landed + .4 : f.age > 1.5;   // then the breeze takes it
-        if (!glide) {
-          if (f.landed === undefined) {
-            f.vel.addScaledVector(fall, dt).multiplyScalar(1 - dt * DRAG);
-            // a falling leaf's sway: side to side, buoyed up a little at the end of each swing
-            const sw = Math.sin(f.age * 3.1 + f.seed);
-            f.vel.addScaledVector(sway, sw * dt * 2.2);
-            f.vel.y += (1 - Math.abs(sw)) * dt * .4 * boardAt.s;
-            f.m.position.addScaledVector(f.vel, dt);
-            f.m.rotateX(f.spin.x * dt); f.m.rotateY(f.spin.y * dt); f.m.rotateZ(f.spin.z * dt);
-          }
-        } else {
-          // carried off: sideways till it's clear of the board, then into the middle of the valley, lifted off the grass
-          const want = f.over ? boardDir(-2, .5, .35) : GLIDE_TO.clone().sub(f.m.position).setLength(4.5);
-          if (f.clear < .7) want.y += (.7 - f.clear) * 2.5;
-          f.vel.lerp(want, Math.min(1, dt * (f.over ? 1.3 : 2.2)));
-          f.vel.addScaledVector(sway, Math.sin(f.age * 2.4 + f.seed) * dt * .8);
-          f.m.position.addScaledVector(f.vel, dt);
-          f.m.rotateX(f.spin.x * .35 * dt); f.m.rotateY(f.spin.y * .35 * dt); f.m.rotateZ(f.spin.z * .35 * dt);
+        if (!f.free) {
+          f.free = true; f.t0 = f.age; f.p0 = f.m.position.clone();
+          // it tips over into a flat glide, its top edge leading and the rest trailing behind
+          const d = EXIT.clone().sub(f.p0);
+          f.glideQ = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2, 0, Math.atan2(-d.x, -d.z)));
         }
+        const u = Math.min(1, (f.age - f.t0) / SWEEP), e = u * (.45 + .55 * u);       // moving off at once, then faster
+        f.m.position.copy(sweepAt(f.p0, e)).addScaledVector(sway, Math.sin(f.age * 2.4 + f.seed) * .15 * (1 - u));
+        f.m.quaternion.slerp(f.glideQ, Math.min(1, dt * 2.6));
+        f.m.rotateZ(Math.sin(f.age * 3 + f.seed) * .25 * dt);                       // rocking a little as it glides
         // Never through the board (any part of the sheet in front of it stays clear of the roof, the clock and the bell),
-        // and never into the ground.
+        // and never into the ground (its lane has no bushes).
         f.m.updateMatrixWorld();
         toBoard.copy(board.matrixWorld).invert().multiply(f.m.matrixWorld);
-        let near = Infinity, clear = Infinity, over = false;
+        let near = Infinity, clear = Infinity;
         for (let j = 0; j < p.count; j += 2) {
           sheetV.fromBufferAttribute(p, j);
           sheetW.copy(sheetV).applyMatrix4(f.m.matrixWorld);
           clear = Math.min(clear, sheetW.y - landY(sheetW.x, sheetW.z));
           sheetV.applyMatrix4(toBoard);
-          const across = Math.abs(sheetV.x) < BW / 2 + .5 && sheetV.z > -.6 && sheetV.y < BASE + BH + 1.3;
-          if (across && sheetV.y > -1.5) over = true;                               // in front of the board, ground to roof
-          if (across && sheetV.y > BASE - .4) near = Math.min(near, sheetV.z);
+          if (Math.abs(sheetV.x) < BW / 2 + .5 && sheetV.y > BASE - .4 && sheetV.y < BASE + BH + 1.3 && sheetV.z > -.6) near = Math.min(near, sheetV.z);
         }
-        if (near < .85) { f.m.position.addScaledVector(f.fwd, (.85 - near) * boardAt.s); const back = f.vel.dot(f.fwd); if (back < 0) f.vel.addScaledVector(f.fwd, -back); }
-        if (clear < .06) { f.m.position.y += .06 - clear; if (f.landed === undefined && !glide) f.landed = f.age; }
-        f.clear = clear; f.over = over;
+        if (near < .85) { f.m.position.addScaledVector(f.fwd, (.85 - near) * boardAt.s); f.p0.addScaledVector(f.fwd, (.85 - near) * boardAt.s); }
+        if (clear < FLOOR) { f.m.position.y += FLOOR - clear; f.p0.y += FLOOR - clear; }
       }
       const amp = f.free ? .12 : .05;
       for (let j = 0; j < p.count; j++) {
@@ -1088,10 +1092,10 @@ export async function create({ renderer, tvScreen, screenTex, logoImg, sfx }) {
         p.setZ(j, z);
       }
       p.needsUpdate = true;
-      // it fades only once it's far off and small, out in the middle of the valley
-      const far = f.m.position.distanceTo(camera.position);
-      f.m.material.opacity = Math.min(1 - smooth(25, 33, far), 1 - smooth(11, 12, f.age));
-      if (far > 33 || f.age > 12) { scene.remove(f.m); f.m.geometry.dispose(); f.m.material.map.dispose(); f.m.material.dispose(); flyers.splice(i, 1); }
+      // gone once every corner of it is below the bottom of the frame (no fading)
+      let top = -Infinity;
+      for (let j = 0; j < p.count; j += 3) top = Math.max(top, sheetW.fromBufferAttribute(p, j).applyMatrix4(f.m.matrixWorld).project(camera).y);
+      if (top < -1.02 || f.age > 8) { scene.remove(f.m); f.m.geometry.dispose(); f.m.material.map.dispose(); f.m.material.dispose(); flyers.splice(i, 1); }
     }
   }
 
